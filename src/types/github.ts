@@ -50,10 +50,20 @@ export interface GitHubPR {
   url: string;
 }
 
+export interface CacheInfo {
+  initial_load?: boolean;
+  is_incremental?: boolean;
+  new_commits?: number;
+  new_prs?: number;
+  last_sync?: string;
+}
+
 export interface GitHubData {
   commits: GitHubCommit[];
   pull_requests: GitHubPR[];
+  repositories?: GitHubRepository[];
   user_info: GitHubUser;
+  cache_info?: CacheInfo;
 }
 
 export interface SearchIndex {

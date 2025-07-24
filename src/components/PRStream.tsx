@@ -1,13 +1,14 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Box,
   Paper,
   Typography,
   Chip,
   Link,
-  Stack
+  Stack,
+  CircularProgress
 } from '@mui/material';
 import { MergeType as PullRequest, AccessTime } from '@mui/icons-material';
 import { GitHubPR } from '@/types/github';
@@ -18,6 +19,8 @@ import { PROJECT_COLORS } from '@/lib/theme';
 interface PRStreamProps {
   pullRequests: GitHubPR[];
 }
+
+const ITEMS_PER_PAGE = 15;
 
 function PRItem({ pr }: { pr: GitHubPR }) {
   const [dateColor, timelineEmoji] = getDateColorAndEmoji(pr.created_at);
@@ -136,36 +139,100 @@ function PRItem({ pr }: { pr: GitHubPR }) {
 }
 
 export default function PRStream({ pullRequests }: PRStreamProps) {
-  const recentPRs = pullRequests
-    .filter(pr => {
-      const prDate = new Date(pr.created_at);
-      const cutoffDate = new Date(Date.now() - CONFIG.LOOK_BACK_DAYS * 24 * 60 * 60 * 1000);
-      return prDate >= cutoffDate;
-    })
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE);
+  const [isLoading, setIsLoading] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Sort all PRs (show ALL PRs, not filtered by date)  
+  const sortedPRs = useMemo(() => {
+    return pullRequests.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [pullRequests]);
+
+  // Get currently visible PRs
+  const visiblePRs = useMemo(() => {
+    return sortedPRs.slice(0, visibleCount);
+  }, [sortedPRs, visibleCount]);
+
+  const hasMore = visibleCount < sortedPRs.length;
+
+  // Load more PRs function
+  const loadMore = useCallback(() => {
+    if (isLoading || !hasMore) return;
+    
+    setIsLoading(true);
+    // Simulate loading delay for better UX
+    setTimeout(() => {
+      setVisibleCount(prev => Math.min(prev + ITEMS_PER_PAGE, sortedPRs.length));
+      setIsLoading(false);
+    }, 100);
+  }, [isLoading, hasMore, sortedPRs.length]);
+
+  // Infinite scroll handler
+  const handleScroll = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container || isLoading || !hasMore) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const scrollThreshold = 200; // Load more when 200px from bottom
+
+    if (scrollHeight - scrollTop - clientHeight < scrollThreshold) {
+      loadMore();
+    }
+  }, [loadMore, isLoading, hasMore]);
+
+  // Set up scroll listener
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [handleScroll]);
 
   return (
     <Box>
       <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         🔀 Pull Request Stream
-        <Chip label={`${recentPRs.length} PRs`} size="small" />
+        <Chip label={`${visiblePRs.length}/${sortedPRs.length} PRs`} size="small" />
       </Typography>
       
       <Box 
+        ref={scrollContainerRef}
         sx={{ 
           height: CONFIG.STREAM_CONTAINER_HEIGHT,
           overflowY: 'auto',
           pr: 1
         }}
       >
-        {recentPRs.length > 0 ? (
-          recentPRs.map((pr, index) => (
-            <PRItem key={`${pr.repo}-${pr.number}-${index}`} pr={pr} />
-          ))
+        {sortedPRs.length > 0 ? (
+          <>
+            {visiblePRs.map((pr, index) => (
+              <PRItem key={`${pr.repo}-${pr.number}-${index}`} pr={pr} />
+            ))}
+            
+            {/* Loading indicator */}
+            {isLoading && (
+              <Box sx={{ textAlign: 'center', py: 2 }}>
+                <CircularProgress size={24} />
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  Loading more PRs...
+                </Typography>
+              </Box>
+            )}
+            
+            {/* End of list indicator */}
+            {!hasMore && sortedPRs.length > ITEMS_PER_PAGE && (
+              <Box sx={{ textAlign: 'center', py: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  All {sortedPRs.length} PRs loaded
+                </Typography>
+              </Box>
+            )}
+          </>
         ) : (
           <Paper sx={{ p: 3, textAlign: 'center' }}>
             <Typography color="text.secondary">
-              No pull requests found in the last {CONFIG.LOOK_BACK_DAYS} days
+              No pull requests found
             </Typography>
           </Paper>
         )}

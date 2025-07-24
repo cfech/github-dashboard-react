@@ -1,43 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { 
-  fetchUserInfo, 
-  fetchRepositories, 
-  fetchOrganizationRepositories,
-  fetchRepositoryCommits,
-  fetchRepositoryPRs 
-} from '@/lib/githubApi';
-import { ERROR_MESSAGES, CONFIG } from '@/lib/constants';
-import { GitHubRepository, GitHubCommit, GitHubPR } from '@/types/github';
+import { performIncrementalSync, performFullSync } from '@/lib/incrementalSync';
+import { getCachedData, isCacheValid } from '@/lib/fileCache';
+import { ERROR_MESSAGES } from '@/lib/constants';
 
-interface CacheEntry {
-  data: any;
-  timestamp: number;
-  ttl: number;
-}
-
-// Simple in-memory cache
-const cache = new Map<string, CacheEntry>();
-
-function getCached(key: string): any | null {
-  const entry = cache.get(key);
-  if (!entry) return null;
-  
-  const now = Date.now();
-  if (now - entry.timestamp > entry.ttl) {
-    cache.delete(key);
-    return null;
-  }
-  
-  return entry.data;
-}
-
-function setCache(key: string, data: any, ttl: number = 300000): void { // 5 minutes default
-  cache.set(key, {
-    data,
-    timestamp: Date.now(),
-    ttl
-  });
-}
+// Cache validation period in minutes
+const CACHE_VALID_MINUTES = 15;
 
 export async function GET(request: NextRequest) {
   try {
@@ -49,162 +16,158 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const cacheKey = 'github-dashboard-data';
+    const searchParams = request.nextUrl.searchParams;
+    const forceFullSync = searchParams.get('fullSync') === 'true';
+    const forceRefresh = searchParams.get('refresh') === 'true';
+
+    console.log('🔍 GitHub API Request:', { forceFullSync, forceRefresh });
+
+    // Check if cache exists at all
+    const cachedData = getCachedData();
+    const cacheExists = cachedData !== null;
     
-    // Check cache first
-    const cachedData = getCached(cacheKey);
-    if (cachedData) {
-      console.log('💾 Cache HIT - returning cached data');
-      const response = NextResponse.json(cachedData);
-      response.headers.set('X-Cache', 'HIT');
+    // If no cache exists, force a full sync on initial load
+    if (!cacheExists && !forceFullSync && !forceRefresh) {
+      console.log('📂 No cache found - performing initial full sync...');
+      const syncResult = await performFullSync();
+      
+      const responseData = {
+        user_info: syncResult.user_info,
+        repositories: syncResult.repositories.map(repo => ({
+          nameWithOwner: repo.nameWithOwner,
+          name: repo.name,
+          url: repo.url,
+          isPrivate: repo.isPrivate,
+          pushedAt: repo.pushedAt,
+          defaultBranch: repo.defaultBranch
+        })),
+        commits: syncResult.commits,
+        pull_requests: syncResult.pull_requests,
+        cache_info: {
+          source: 'initial_full_sync',
+          last_sync: syncResult.syncTimestamp,
+          is_incremental: false,
+          new_commits: syncResult.newCommitsCount,
+          new_prs: syncResult.newPRsCount,
+          initial_load: true
+        }
+      };
+
+      const response = NextResponse.json(responseData);
+      response.headers.set('X-Cache', 'INITIAL_SYNC');
+      response.headers.set('X-Cache-Source', 'full_sync');
+      console.log(`✅ Initial sync completed: ${responseData.commits.length} commits, ${responseData.pull_requests.length} PRs`);
       return response;
     }
-
-    console.log('💾 Cache MISS - fetching fresh data');
-    console.group('🔍 GitHub API Performance');
-    console.time('Total API Fetch');
-
-    // 1. Fetch user info
-    console.time('User Info Query');
-    const userInfo = await fetchUserInfo();
-    console.timeEnd('User Info Query');
-
-    // 2. Get target organizations from environment
-    const targetOrgs = process.env.TARGET_ORGANIZATIONS?.split(',').map(org => org.trim()) || [];
-    console.log(`🎯 Target organizations: ${targetOrgs.join(', ')}`);
-
-    // 3. Fetch repositories from user and organizations
-    console.time('Repository Discovery');
-    let allRepositories: GitHubRepository[] = [];
     
-    // Fetch user repositories
-    const userRepos = await fetchRepositories();
-    allRepositories.push(...userRepos);
-    
-    // Fetch organization repositories
-    for (const orgName of targetOrgs) {
-      try {
-        const orgRepos = await fetchOrganizationRepositories(orgName);
-        allRepositories.push(...orgRepos);
-      } catch (error) {
-        console.warn(`Failed to fetch repositories for org: ${orgName}`, error);
+    // Check if we should use cached data
+    if (!forceRefresh && !forceFullSync && isCacheValid(CACHE_VALID_MINUTES)) {
+      console.log('💾 Using valid cached data');
+      if (cachedData) {
+        const response = NextResponse.json({
+          user_info: cachedData.user_info,
+          repositories: cachedData.repositories.map(repo => ({
+            nameWithOwner: repo.nameWithOwner,
+            name: repo.name,
+            url: repo.url,
+            isPrivate: repo.isPrivate,
+            pushedAt: repo.pushedAt,
+            defaultBranch: repo.defaultBranch
+          })),
+          commits: cachedData.commits,
+          pull_requests: cachedData.pull_requests,
+          cache_info: {
+            source: 'file_cache',
+            last_sync: cachedData.metadata.lastSync,
+            last_full_sync: cachedData.metadata.lastFullSync,
+            is_incremental: false
+          }
+        });
+        response.headers.set('X-Cache', 'HIT');
+        response.headers.set('X-Cache-Source', 'file');
+        return response;
       }
     }
 
-    // Filter by recent activity only (include all repositories)
-    const cutoffDate = new Date(Date.now() - CONFIG.LOOK_BACK_DAYS * 24 * 60 * 60 * 1000);
-    console.log(`⏰ Filtering repositories with activity since: ${cutoffDate.toISOString()}`);
-    console.log(`📊 Total repositories discovered: ${allRepositories.length}`);
-    
-    const recentRepos = allRepositories
-      .filter(repo => {
-        const pushedAt = new Date(repo.pushedAt);
-        const isRecent = pushedAt >= cutoffDate;
-        const daysSinceLastPush = Math.ceil((Date.now() - pushedAt.getTime()) / (1000 * 60 * 60 * 24));
-        
-        if (isRecent) {
-          console.log(`✅ ${repo.nameWithOwner}: last pushed ${daysSinceLastPush} days ago (${pushedAt.toISOString()})`);
-        } else {
-          console.log(`❌ ${repo.nameWithOwner}: last pushed ${daysSinceLastPush} days ago - too old`);
-        }
-        
-        return isRecent;
-      })
-      .sort((a, b) => new Date(b.pushedAt).getTime() - new Date(a.pushedAt).getTime())
-      .slice(0, CONFIG.DEFAULT_REPO_FETCH_LIMIT);
+    // Determine sync type
+    let syncResult;
+    if (forceFullSync) {
+      console.log('🔄 Performing forced full sync');
+      syncResult = await performFullSync();
+    } else {
+      console.log('🔄 Performing incremental sync');
+      syncResult = await performIncrementalSync();
+    }
 
-    console.log(`📦 Repository Discovery: Found ${recentRepos.length} active repositories (limited to ${CONFIG.DEFAULT_REPO_FETCH_LIMIT})`);
-    console.timeEnd('Repository Discovery');
-
-    // 4. Fetch commits and PRs for each repository
-    console.time('Bulk Data Query');
-    const allCommits: GitHubCommit[] = [];
-    const allPRs: GitHubPR[] = [];
-
-    const fetchPromises = recentRepos.map(async (repo) => {
-      try {
-        const [commits, prs] = await Promise.all([
-          fetchRepositoryCommits(repo),
-          fetchRepositoryPRs(repo)
-        ]);
-        
-        // Filter commits by date
-        const recentCommits = commits.filter(commit => {
-          const commitDate = new Date(commit.date);
-          return commitDate >= cutoffDate;
-        });
-        
-        // Filter PRs by date
-        const recentPRs = prs.filter(pr => {
-          const prDate = new Date(pr.created_at);
-          return prDate >= cutoffDate;
-        });
-        
-        return { commits: recentCommits, prs: recentPRs };
-      } catch (error) {
-        console.warn(`Failed to fetch data for repo: ${repo.nameWithOwner}`, error);
-        return { commits: [], prs: [] };
-      }
-    });
-
-    const results = await Promise.all(fetchPromises);
-    
-    results.forEach(({ commits, prs }) => {
-      allCommits.push(...commits);
-      allPRs.push(...prs);
-    });
-
-    console.log(`🔄 Bulk Data Query: ${allCommits.length} commits, ${allPRs.length} PRs`);
-    console.timeEnd('Bulk Data Query');
-    console.timeEnd('Total API Fetch');
-    console.groupEnd();
-
-    // 5. Prepare response data
+    // Prepare response data
     const responseData = {
-      user_info: userInfo,
-      commits: allCommits.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
-      pull_requests: allPRs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      user_info: syncResult.user_info,
+      repositories: syncResult.repositories.map(repo => ({
+        nameWithOwner: repo.nameWithOwner,
+        name: repo.name,
+        url: repo.url,
+        isPrivate: repo.isPrivate,
+        pushedAt: repo.pushedAt,
+        defaultBranch: repo.defaultBranch
+      })),
+      commits: syncResult.commits,
+      pull_requests: syncResult.pull_requests,
+      cache_info: {
+        source: 'github_api',
+        last_sync: syncResult.syncTimestamp,
+        is_incremental: syncResult.isIncremental,
+        new_commits: syncResult.newCommitsCount,
+        new_prs: syncResult.newPRsCount
+      }
     };
-
-    // Cache the data
-    const cacheTTL = parseInt(process.env.NEXT_PUBLIC_CACHE_TTL || '300000');
-    setCache(cacheKey, responseData, cacheTTL);
 
     // Set response headers
     const response = NextResponse.json(responseData);
-    response.headers.set('Cache-Control', `public, s-maxage=${cacheTTL / 1000}, stale-while-revalidate=${cacheTTL / 500}`);
     response.headers.set('X-Cache', 'MISS');
-    
+    response.headers.set('X-Cache-Source', syncResult.isIncremental ? 'incremental_sync' : 'full_sync');
+    response.headers.set('X-New-Commits', syncResult.newCommitsCount.toString());
+    response.headers.set('X-New-PRs', syncResult.newPRsCount.toString());
+
+    console.log(`✅ API Response: ${responseData.commits.length} commits, ${responseData.pull_requests.length} PRs`);
+    console.log(`📊 New data: +${syncResult.newCommitsCount} commits, +${syncResult.newPRsCount} PRs`);
+
     return response;
 
   } catch (error) {
-    console.error('Error fetching GitHub data:', error);
+    console.error('❌ GitHub API Error:', error);
+    
+    // Try to return cached data as fallback
+    const cachedData = getCachedData();
+    if (cachedData) {
+      console.log('📂 Returning cached data as fallback');
+      const response = NextResponse.json({
+        user_info: cachedData.user_info,
+        repositories: cachedData.repositories.map(repo => ({
+          nameWithOwner: repo.nameWithOwner,
+          name: repo.name,
+          url: repo.url,
+          isPrivate: repo.isPrivate,
+          pushedAt: repo.pushedAt,
+          defaultBranch: repo.defaultBranch
+        })),
+        commits: cachedData.commits,
+        pull_requests: cachedData.pull_requests,
+        cache_info: {
+          source: 'file_cache_fallback',
+          last_sync: cachedData.metadata.lastSync,
+          last_full_sync: cachedData.metadata.lastFullSync,
+          error: 'API request failed, using cached data'
+        }
+      });
+      response.headers.set('X-Cache', 'FALLBACK');
+      return response;
+    }
+
     return NextResponse.json(
       { 
-        error: ERROR_MESSAGES.api_error,
-        details: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : 'Failed to fetch GitHub data',
+        details: error instanceof Error ? error.stack : String(error)
       },
-      { status: 500 }
-    );
-  }
-}
-
-// POST route to refresh cache
-export async function POST(request: NextRequest) {
-  try {
-    const cacheKey = 'github-dashboard-data';
-    cache.delete(cacheKey);
-    
-    console.log('🔄 Cache manually cleared');
-    
-    return NextResponse.json({ 
-      message: 'Cache cleared successfully',
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error clearing cache:', error);
-    return NextResponse.json(
-      { error: 'Failed to clear cache' },
       { status: 500 }
     );
   }

@@ -1,13 +1,14 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Box,
   Paper,
   Typography,
   Chip,
   Link,
-  Stack
+  Stack,
+  CircularProgress
 } from '@mui/material';
 import { AccountTree as GitBranch, AccessTime } from '@mui/icons-material';
 import { GitHubCommit } from '@/types/github';
@@ -17,6 +18,8 @@ import { CONFIG } from '@/lib/constants';
 interface CommitStreamProps {
   commits: GitHubCommit[];
 }
+
+const ITEMS_PER_PAGE = 20;
 
 function CommitItem({ commit }: { commit: GitHubCommit }) {
   const [dateColor, timelineEmoji] = getDateColorAndEmoji(commit.date);
@@ -103,36 +106,100 @@ function CommitItem({ commit }: { commit: GitHubCommit }) {
 }
 
 export default function CommitStream({ commits }: CommitStreamProps) {
-  const recentCommits = commits
-    .filter(commit => {
-      const commitDate = new Date(commit.date);
-      const cutoffDate = new Date(Date.now() - CONFIG.LOOK_BACK_DAYS * 24 * 60 * 60 * 1000);
-      return commitDate >= cutoffDate;
-    })
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE);
+  const [isLoading, setIsLoading] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Sort all commits (show ALL commits, not filtered by date)
+  const sortedCommits = useMemo(() => {
+    return commits.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [commits]);
+
+  // Get currently visible commits
+  const visibleCommits = useMemo(() => {
+    return sortedCommits.slice(0, visibleCount);
+  }, [sortedCommits, visibleCount]);
+
+  const hasMore = visibleCount < sortedCommits.length;
+
+  // Load more commits function
+  const loadMore = useCallback(() => {
+    if (isLoading || !hasMore) return;
+    
+    setIsLoading(true);
+    // Simulate loading delay for better UX
+    setTimeout(() => {
+      setVisibleCount(prev => Math.min(prev + ITEMS_PER_PAGE, sortedCommits.length));
+      setIsLoading(false);
+    }, 100);
+  }, [isLoading, hasMore, sortedCommits.length]);
+
+  // Infinite scroll handler
+  const handleScroll = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container || isLoading || !hasMore) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const scrollThreshold = 200; // Load more when 200px from bottom
+
+    if (scrollHeight - scrollTop - clientHeight < scrollThreshold) {
+      loadMore();
+    }
+  }, [loadMore, isLoading, hasMore]);
+
+  // Set up scroll listener
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [handleScroll]);
 
   return (
     <Box>
       <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         📝 Commit Stream
-        <Chip label={`${recentCommits.length} commits`} size="small" />
+        <Chip label={`${visibleCommits.length}/${sortedCommits.length} commits`} size="small" />
       </Typography>
       
       <Box 
+        ref={scrollContainerRef}
         sx={{ 
           height: CONFIG.STREAM_CONTAINER_HEIGHT,
           overflowY: 'auto',
           pr: 1
         }}
       >
-        {recentCommits.length > 0 ? (
-          recentCommits.map((commit, index) => (
-            <CommitItem key={`${commit.repo}-${commit.sha}-${index}`} commit={commit} />
-          ))
+        {sortedCommits.length > 0 ? (
+          <>
+            {visibleCommits.map((commit, index) => (
+              <CommitItem key={`${commit.repo}-${commit.sha}-${index}`} commit={commit} />
+            ))}
+            
+            {/* Loading indicator */}
+            {isLoading && (
+              <Box sx={{ textAlign: 'center', py: 2 }}>
+                <CircularProgress size={24} />
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  Loading more commits...
+                </Typography>
+              </Box>
+            )}
+            
+            {/* End of list indicator */}
+            {!hasMore && sortedCommits.length > ITEMS_PER_PAGE && (
+              <Box sx={{ textAlign: 'center', py: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  All {sortedCommits.length} commits loaded
+                </Typography>
+              </Box>
+            )}
+          </>
         ) : (
           <Paper sx={{ p: 3, textAlign: 'center' }}>
             <Typography color="text.secondary">
-              No commits found in the last {CONFIG.LOOK_BACK_DAYS} days
+              No commits found
             </Typography>
           </Paper>
         )}

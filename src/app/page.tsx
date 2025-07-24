@@ -9,7 +9,8 @@ import {
   Fab,
   CircularProgress,
   Alert,
-  Snackbar
+  Snackbar,
+  Tooltip
 } from '@mui/material';
 import { Menu, Refresh } from '@mui/icons-material';
 import Header from '@/components/Header';
@@ -22,7 +23,7 @@ import GlobalSearch from '@/components/GlobalSearch';
 import ActivityHeatmap from '@/components/ActivityHeatmap';
 import { GitHubData } from '@/types/github';
 import { mockData } from '@/data/mockData';
-import { fetchGitHubData, refreshGitHubData } from '@/lib/apiClient';
+import { fetchGitHubData, refreshGitHubData, fullSyncGitHubData } from '@/lib/apiClient';
 import { INFO_MESSAGES, ERROR_MESSAGES } from '@/lib/constants';
 
 export default function Dashboard() {
@@ -60,7 +61,20 @@ export default function Dashboard() {
         console.log('🔄 Fetching live GitHub data...');
         const githubData = await fetchGitHubData();
         setData(githubData);
-        setSnackbarMessage(INFO_MESSAGES.debug_mode_off + ` - Loaded ${githubData.commits.length} commits, ${githubData.pull_requests.length} PRs`);
+        
+        // Show appropriate message based on sync type
+        if (githubData.cache_info?.initial_load) {
+          setSnackbarMessage(`🎉 Initial setup complete! Loaded ${githubData.commits.length} commits and ${githubData.pull_requests.length} PRs from all repositories`);
+        } else if (githubData.cache_info?.is_incremental) {
+          const newItems = (githubData.cache_info.new_commits || 0) + (githubData.cache_info.new_prs || 0);
+          if (newItems > 0) {
+            setSnackbarMessage(`✨ Found ${githubData.cache_info.new_commits || 0} new commits and ${githubData.cache_info.new_prs || 0} new PRs!`);
+          } else {
+            setSnackbarMessage('✅ You\'re up to date - no new activity found');
+          }
+        } else {
+          setSnackbarMessage(INFO_MESSAGES.debug_mode_off + ` - Loaded ${githubData.commits.length} commits, ${githubData.pull_requests.length} PRs`);
+        }
         setSnackbarOpen(true);
         
         // Performance logging for production mode
@@ -90,18 +104,49 @@ export default function Dashboard() {
     }
   };
 
+  // Incremental refresh - check for new commits/PRs only
   const handleRefresh = async () => {
     if (!debugMode) {
+      setLoading(true);
       try {
-        // Clear cache and fetch fresh data
-        await refreshGitHubData();
-        await fetchData();
-        setSnackbarMessage('Data refreshed successfully');
+        console.log('🔄 Performing incremental refresh...');
+        const refreshedData = await refreshGitHubData();
+        setData(refreshedData);
+        
+        // Show notification with new data count
+        const cacheInfo = refreshedData.cache_info;
+        if (cacheInfo && ((cacheInfo.new_commits || 0) > 0 || (cacheInfo.new_prs || 0) > 0)) {
+          setSnackbarMessage(`✨ Found ${cacheInfo.new_commits || 0} new commits and ${cacheInfo.new_prs || 0} new PRs!`);
+        } else {
+          setSnackbarMessage('✓ No new activity found - you\'re up to date!');
+        }
         setSnackbarOpen(true);
       } catch (err) {
         console.error('Error refreshing data:', err);
-        setSnackbarMessage('Failed to refresh data');
+        setSnackbarMessage('❌ Failed to refresh data');
         setSnackbarOpen(true);
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  // Full sync - completely refresh all data (for settings)
+  const handleFullSync = async () => {
+    if (!debugMode) {
+      setLoading(true);
+      try {
+        console.log('🔄 Performing full sync...');
+        const syncedData = await fullSyncGitHubData();
+        setData(syncedData);
+        setSnackbarMessage(`🔄 Full sync completed! Loaded ${syncedData.commits.length} commits and ${syncedData.pull_requests.length} PRs`);
+        setSnackbarOpen(true);
+      } catch (err) {
+        console.error('Error performing full sync:', err);
+        setSnackbarMessage('❌ Failed to perform full sync');
+        setSnackbarOpen(true);
+      } finally {
+        setLoading(false);
       }
     }
   };
@@ -161,6 +206,7 @@ export default function Dashboard() {
         <Grid item xs={12}>
           <CommitsTable 
             commits={data?.commits || []} 
+            repositories={data?.repositories || []}
             searchTerm={searchTerm}
           />
         </Grid>
@@ -189,20 +235,23 @@ export default function Dashboard() {
       </Fab>
 
       {/* Floating Refresh Button */}
-      <Fab
-        color="secondary"
-        sx={{ position: 'fixed', bottom: 80, right: 16 }}
-        onClick={handleRefresh}
-        disabled={loading || debugMode}
-      >
-        <Refresh />
-      </Fab>
+      <Tooltip title="🔄 Quick refresh: Check for new commits and PRs since last sync">
+        <Fab
+          color="secondary"
+          sx={{ position: 'fixed', bottom: 80, right: 16 }}
+          onClick={handleRefresh}
+          disabled={loading || debugMode}
+        >
+          <Refresh />
+        </Fab>
+      </Tooltip>
 
       <Sidebar
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         user={data?.user_info}
         onRefresh={handleRefresh}
+        onFullSync={handleFullSync}
         debugMode={debugMode}
       />
 

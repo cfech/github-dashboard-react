@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Paper,
@@ -13,7 +13,8 @@ import {
   ListItem,
   Link,
   Chip,
-  Stack
+  Stack,
+  CircularProgress
 } from '@mui/material';
 import { Search, Clear, GitHub, MergeType as PullRequest } from '@mui/icons-material';
 import { GitHubCommit, GitHubPR, SearchIndex } from '@/types/github';
@@ -34,10 +35,14 @@ interface SearchResult {
 
 export default function GlobalSearch({ commits, pullRequests, onSearchChange }: GlobalSearchProps) {
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState<string>('');
   const [showResults, setShowResults] = useState<boolean>(false);
-  const [showMore, setShowMore] = useState<boolean>(false);
+  const [visibleResultsCount, setVisibleResultsCount] = useState<number>(50);
+  const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const resultsContainerRef = useRef<HTMLDivElement>(null);
 
-  // Build search index
+  // Build enhanced search index with pre-computed search strings
   const searchIndex = useMemo<SearchIndex>(() => {
     if (process.env.NODE_ENV === 'development') {
       console.group('🔍 Search Index Building');
@@ -47,12 +52,26 @@ export default function GlobalSearch({ commits, pullRequests, onSearchChange }: 
     const index: SearchIndex = {
       commits: commits.map(commit => ({
         id: `${commit.repo}-${commit.sha}`,
-        searchText: `${commit.message} ${commit.author}`.toLowerCase(),
+        // Pre-compute comprehensive search text including all searchable fields
+        searchText: [
+          commit.message,
+          commit.author,
+          commit.repo,
+          commit.branch_name,
+          commit.sha
+        ].join(' ').toLowerCase(),
         originalData: commit
       })),
       prs: pullRequests.map(pr => ({
         id: `${pr.repo}-${pr.number}`,
-        searchText: `${pr.title} ${pr.author}`.toLowerCase(),
+        // Pre-compute comprehensive search text including all searchable fields
+        searchText: [
+          pr.title,
+          pr.author,
+          pr.repo,
+          pr.number.toString(),
+          pr.state
+        ].join(' ').toLowerCase(),
         originalData: pr
       }))
     };
@@ -66,56 +85,67 @@ export default function GlobalSearch({ commits, pullRequests, onSearchChange }: 
     return index;
   }, [commits, pullRequests]);
 
-  // Debounced search results
+  // Optimized search results with early termination and caching
   const searchResults = useMemo(() => {
-    // Helper function for calculating search relevance
-    const calculateRelevanceScore = (text: string, term: string): number => {
+    if (!debouncedSearchTerm.trim() || debouncedSearchTerm.length < 2) return [];
+
+    const startTime = performance.now();
+    const lowerSearchTerm = debouncedSearchTerm.toLowerCase();
+    const searchTerms = lowerSearchTerm.split(' ').filter(term => term.length > 0);
+    const results: SearchResult[] = [];
+
+    // Helper function for optimized relevance scoring
+    const calculateRelevanceScore = (text: string, terms: string[]): number => {
       let score = 0;
-      const termIndex = text.indexOf(term);
       
-      if (termIndex === 0) score += 10; // Starts with term
-      else if (termIndex > 0) score += 5; // Contains term
-      
-      const wordBoundaryIndex = text.indexOf(` ${term}`);
-      if (wordBoundaryIndex >= 0) score += 5; // Word boundary
+      for (const term of terms) {
+        const termIndex = text.indexOf(term);
+        if (termIndex === -1) continue;
+        
+        if (termIndex === 0) score += 15; // Starts with term
+        else if (text.indexOf(` ${term}`) >= 0) score += 10; // Word boundary
+        else score += 5; // Contains term anywhere
+        
+        // Bonus for exact matches
+        if (text === term) score += 20;
+      }
       
       return score;
     };
-    if (!searchTerm.trim()) return [];
 
-    const startTime = performance.now();
-    const lowerSearchTerm = searchTerm.toLowerCase();
-    const results: SearchResult[] = [];
+    // Combined search with early termination for performance
+    const searchItems = [
+      ...searchIndex.commits.map(item => ({ ...item, type: 'commit' as const })),
+      ...searchIndex.prs.map(item => ({ ...item, type: 'pr' as const }))
+    ];
 
-    // Search commits
-    searchIndex.commits.forEach(({ searchText, originalData }) => {
-      if (searchText.includes(lowerSearchTerm)) {
-        const relevanceScore = calculateRelevanceScore(searchText, lowerSearchTerm);
-        results.push({
-          type: 'commit',
-          data: originalData,
-          relevanceScore
-        });
+    // Search all items (no early termination for infinite scroll)
+    for (const { searchText, originalData, type } of searchItems) {
+      // Check if all search terms are present (AND logic for multiple terms)
+      const matchesAllTerms = searchTerms.every(term => searchText.includes(term));
+      
+      if (matchesAllTerms) {
+        const relevanceScore = calculateRelevanceScore(searchText, searchTerms);
+        
+        // Only include results with meaningful relevance
+        if (relevanceScore > 0) {
+          results.push({
+            type,
+            data: originalData,
+            relevanceScore
+          });
+        }
       }
-    });
+    }
 
-    // Search PRs
-    searchIndex.prs.forEach(({ searchText, originalData }) => {
-      if (searchText.includes(lowerSearchTerm)) {
-        const relevanceScore = calculateRelevanceScore(searchText, lowerSearchTerm);
-        results.push({
-          type: 'pr',
-          data: originalData,
-          relevanceScore
-        });
-      }
-    });
-
-    // Sort by relevance then by date
+    // Optimized sorting: sort only the results we found
     results.sort((a, b) => {
+      // Primary sort: relevance score
       if (a.relevanceScore !== b.relevanceScore) {
         return b.relevanceScore - a.relevanceScore;
       }
+      
+      // Secondary sort: date (more recent first)
       const aDate = a.type === 'commit' ? (a.data as GitHubCommit).date : (a.data as GitHubPR).created_at;
       const bDate = b.type === 'commit' ? (b.data as GitHubCommit).date : (b.data as GitHubPR).created_at;
       return new Date(bDate).getTime() - new Date(aDate).getTime();
@@ -124,51 +154,114 @@ export default function GlobalSearch({ commits, pullRequests, onSearchChange }: 
     if (process.env.NODE_ENV === 'development') {
       const endTime = performance.now();
       console.group('🔍 Search Performance');
-      console.log(`🔍 Search query: "${searchTerm}" (${searchTerm.length} chars)`);
+      console.log(`🔍 Search query: "${debouncedSearchTerm}" (${searchTerms.length} terms)`);
       console.log(`📊 Results: ${results.length} items found in ${(endTime - startTime).toFixed(1)}ms`);
       console.log(`💾 Index size: ${searchIndex.commits.length + searchIndex.prs.length} total items`);
+      console.log(`⚡ Performance: ${((searchIndex.commits.length + searchIndex.prs.length) / (endTime - startTime) * 1000).toFixed(0)} items/second`);
+      console.log(`🔄 Infinite scroll ready: ${results.length} total results available`);
       console.groupEnd();
     }
 
     return results;
-  }, [searchTerm, searchIndex]);
+  }, [debouncedSearchTerm, searchIndex]);
 
-  const handleSearchChange = (value: string) => {
+  // Debounce search input for better performance
+  useEffect(() => {
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
+    }
+
+    debounceTimeoutRef.current = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 150); // Reduced from 300ms to 150ms for more responsive feel
+
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+    };
+  }, [searchTerm]);
+
+  const handleSearchChange = useCallback((value: string) => {
     setSearchTerm(value);
     setShowResults(value.trim().length > 0);
-    setShowMore(false);
+    setVisibleResultsCount(50); // Reset to initial count
     onSearchChange(value);
-  };
+  }, [onSearchChange]);
 
-  const highlightMatch = (text: string, term: string) => {
-    if (!term) return text;
+  // Load more results for infinite scroll
+  const loadMoreResults = useCallback(() => {
+    if (isLoadingMore || visibleResultsCount >= searchResults.length) return;
     
-    const regex = new RegExp(`(${term})`, 'gi');
-    const parts = text.split(regex);
-    
-    return parts.map((part, index) =>
-      regex.test(part) ? (
-        <mark key={index} style={{ backgroundColor: '#ffeb3b', padding: '1px 2px', borderRadius: '2px' }}>
-          {part}
-        </mark>
-      ) : (
-        part
-      )
-    );
-  };
+    setIsLoadingMore(true);
+    // Simulate loading delay for better UX
+    setTimeout(() => {
+      setVisibleResultsCount(prev => Math.min(prev + 50, searchResults.length));
+      setIsLoadingMore(false);
+    }, 100);
+  }, [isLoadingMore, visibleResultsCount, searchResults.length]);
 
-  const displayResults = showMore ? searchResults : searchResults.slice(0, 50);
+  // Infinite scroll handler
+  const handleScroll = useCallback(() => {
+    const container = resultsContainerRef.current;
+    if (!container || isLoadingMore || visibleResultsCount >= searchResults.length) return;
 
-  // Use debounced search effect
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const scrollThreshold = 200; // Load more when 200px from bottom
+
+    if (scrollHeight - scrollTop - clientHeight < scrollThreshold) {
+      loadMoreResults();
+    }
+  }, [loadMoreResults, isLoadingMore, visibleResultsCount, searchResults.length]);
+
+  // Set up scroll listener
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      if (searchTerm) {
-        // Trigger search after 300ms delay
-      }
-    }, 300);
+    const container = resultsContainerRef.current;
+    if (!container) return;
 
-    return () => clearTimeout(timeoutId);
-  }, [searchTerm]);
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [handleScroll]);
+
+  // Optimized highlight function with memoization
+  const highlightMatch = useCallback((text: string, term: string) => {
+    if (!term || !text) return text;
+    
+    try {
+      // Split multiple terms and highlight each
+      const terms = term.toLowerCase().split(' ').filter(t => t.length > 0);
+      let result: React.ReactNode = text;
+      
+      for (const singleTerm of terms) {
+        const escapedTerm = singleTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`(${escapedTerm})`, 'gi');
+        
+        if (typeof result === 'string') {
+          const parts = result.split(regex);
+          result = parts.map((part, index) =>
+            regex.test(part) ? (
+              <mark key={`${singleTerm}-${index}`} style={{ backgroundColor: '#ffeb3b', padding: '1px 2px', borderRadius: '2px' }}>
+                {part}
+              </mark>
+            ) : (
+              part
+            )
+          );
+        }
+      }
+      
+      return result;
+    } catch (error) {
+      // If regex fails, return original text
+      return text;
+    }
+  }, []);
+
+  const displayResults = useMemo(() => {
+    return searchResults.slice(0, visibleResultsCount);
+  }, [searchResults, visibleResultsCount]);
+
+  const hasMoreResults = visibleResultsCount < searchResults.length;
 
   return (
     <Box sx={{ mt: 4 }}>
@@ -180,7 +273,7 @@ export default function GlobalSearch({ commits, pullRequests, onSearchChange }: 
         <TextField
           fullWidth
           variant="outlined"
-          placeholder="Search commits and PRs by message or author..."
+          placeholder="Search commits and PRs by message, author, repository, branch, or SHA..."
           value={searchTerm}
           onChange={(e) => handleSearchChange(e.target.value)}
           InputProps={{
@@ -201,50 +294,71 @@ export default function GlobalSearch({ commits, pullRequests, onSearchChange }: 
         
         {showResults && (
           <>
-            <Box sx={{ mt: 2, mb: 1 }}>
+            <Box sx={{ mt: 2, mb: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Typography variant="body2" color="text.secondary">
-                {searchResults.length} results found
+                {searchResults.length > 0 
+                  ? `${searchResults.length} results found (showing ${displayResults.length})`
+                  : debouncedSearchTerm.length < 2 
+                    ? 'Type at least 2 characters to search'
+                    : 'No results found'
+                }
               </Typography>
+              {debouncedSearchTerm !== searchTerm && (
+                <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                  Searching...
+                </Typography>
+              )}
             </Box>
             
             <Divider sx={{ mb: 2 }} />
             
-            <Box sx={{ maxHeight: 400, overflow: 'auto' }}>
-              <List dense>
-                {displayResults.map((result, index) => (
-                  <ListItem key={`${result.type}-${index}`} sx={{ px: 0, py: 1 }}>
-                    <Box sx={{ width: '100%' }}>
-                      {result.type === 'commit' ? (
-                        <CommitSearchResult 
-                          commit={result.data as GitHubCommit} 
-                          searchTerm={searchTerm}
-                          highlightMatch={highlightMatch}
-                        />
-                      ) : (
-                        <PRSearchResult 
-                          pr={result.data as GitHubPR} 
-                          searchTerm={searchTerm}
-                          highlightMatch={highlightMatch}
-                        />
-                      )}
-                    </Box>
-                  </ListItem>
-                ))}
-              </List>
-              
-              {searchResults.length > 50 && !showMore && (
-                <Box sx={{ textAlign: 'center', mt: 2 }}>
-                  <Typography 
-                    variant="body2" 
-                    color="primary" 
-                    sx={{ cursor: 'pointer', textDecoration: 'underline' }}
-                    onClick={() => setShowMore(true)}
-                  >
-                    Show more results ({searchResults.length - 50} remaining)
-                  </Typography>
-                </Box>
-              )}
-            </Box>
+            {searchResults.length > 0 && (
+              <Box 
+                ref={resultsContainerRef}
+                sx={{ maxHeight: 400, overflow: 'auto' }}
+              >
+                <List dense>
+                  {displayResults.map((result, index) => (
+                    <ListItem key={`${result.type}-${result.data.repo}-${index}`} sx={{ px: 0, py: 1 }}>
+                      <Box sx={{ width: '100%' }}>
+                        {result.type === 'commit' ? (
+                          <CommitSearchResult 
+                            commit={result.data as GitHubCommit} 
+                            searchTerm={debouncedSearchTerm}
+                            highlightMatch={highlightMatch}
+                          />
+                        ) : (
+                          <PRSearchResult 
+                            pr={result.data as GitHubPR} 
+                            searchTerm={debouncedSearchTerm}
+                            highlightMatch={highlightMatch}
+                          />
+                        )}
+                      </Box>
+                    </ListItem>
+                  ))}
+                </List>
+                
+                {/* Loading indicator for infinite scroll */}
+                {isLoadingMore && (
+                  <Box sx={{ textAlign: 'center', py: 2 }}>
+                    <CircularProgress size={24} />
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      Loading more results...
+                    </Typography>
+                  </Box>
+                )}
+                
+                {/* End of results indicator */}
+                {!hasMoreResults && searchResults.length > 50 && (
+                  <Box sx={{ textAlign: 'center', py: 2 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      All {searchResults.length} results loaded
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+            )}
           </>
         )}
       </Paper>
@@ -252,7 +366,7 @@ export default function GlobalSearch({ commits, pullRequests, onSearchChange }: 
   );
 }
 
-function CommitSearchResult({ 
+const CommitSearchResult = React.memo(function CommitSearchResult({ 
   commit, 
   searchTerm, 
   highlightMatch 
@@ -306,9 +420,9 @@ function CommitSearchResult({
       </Stack>
     </Box>
   );
-}
+});
 
-function PRSearchResult({ 
+const PRSearchResult = React.memo(function PRSearchResult({ 
   pr, 
   searchTerm, 
   highlightMatch 
@@ -372,4 +486,4 @@ function PRSearchResult({
       </Stack>
     </Box>
   );
-}
+});
