@@ -1,0 +1,1129 @@
+# GitHub Dashboard - React Migration Instructions
+
+Create a modern GitHub Dashboard web application using React with server-side rendering, TypeScript, and Material UI that replicates the functionality of the existing Python Streamlit application.
+
+## Core Functionality Overview
+
+The dashboard provides real-time activity streams for GitHub repositories, showing commits and pull requests with intelligent color coding, charts, and detailed tables. It focuses on organizational productivity insights and recent developer activity.
+
+## Technical Requirements
+
+- **Frontend**: React 18+ with Next.js for server-side rendering
+- **Language**: TypeScript with strict mode
+- **UI Library**: Material UI (MUI) v5+ with custom theming
+- **State Management**: React Context API or Zustand for lightweight state
+- **Data Fetching**: Apollo Client for GraphQL or SWR for REST
+- **Charts**: Chart.js with react-chartjs-2 or Recharts
+- **Authentication**: GitHub Personal Access Token (server-side only, no OAuth)
+- **Caching**: React Query or SWR for API response caching
+- **Styling**: MUI theming with custom color scheme
+
+## Environment Configuration
+
+### Server-Side Environment Variables (Never expose to client):
+```
+GITHUB_TOKEN=<personal_access_token_with_required_scopes>
+TARGET_ORGANIZATIONS=<comma_separated_org_names>
+REPO_FETCH_LIMIT=25
+LOOK_BACK_DAYS=5
+NODE_ENV=development|production
+```
+
+### Client-Side Environment Variables (Safe for client exposure):
+```
+NEXT_PUBLIC_DEBUG_MODE=true|false
+NEXT_PUBLIC_APP_NAME="GitHub Dashboard"
+NEXT_PUBLIC_CACHE_TTL=300000
+```
+
+### Required GitHub Token Scopes:
+The GITHUB_TOKEN must have these minimum scopes:
+- `repo` - Access to private repositories and their commits/PRs
+- `read:org` - Read organization membership and repositories
+- `read:user` - Access user profile information
+- `read:project` - Access to project boards (if needed)
+
+**CRITICAL SECURITY**: Never expose the GITHUB_TOKEN to the client-side. All GitHub API calls must be made through server-side API routes.
+
+## GitHub API Integration
+
+### API Integration Strategy
+**Use a GraphQL + REST Hybrid Approach for optimal efficiency:**
+- Use GraphQL for complex queries that require multiple related data points
+- Use REST for simple, single-resource queries 
+- Prioritize minimizing API calls and avoiding rate limits
+- All API calls must be server-side only to protect the token
+
+### GraphQL Schema Usage
+Implement these core GraphQL queries:
+
+1. **User Information Query**:
+   - Fetch authenticated user profile (name, avatar, company, location)
+   - Get contribution statistics (commits, PRs, repositories)
+   - Display follower/following counts
+
+2. **Repository Discovery Query**:
+   - User-affiliated repositories (owner, collaborator, organization member)
+   - Organization repositories with pagination
+   - Filter by push date recency (last 5-7 days)
+   - Sort by most recent activity
+
+3. **Bulk Data Query**:
+   - Commits from default branch (last 100 per repo)
+   - Open pull requests (last 20 per repo)
+   - Merged pull requests (last 20 per repo)
+   - Combine into single GraphQL query for efficiency
+
+4. **Commit Stream Query**:
+   - Multi-branch commit fetching (last 10 commits per branch)
+   - Target recently active repositories only
+   - Include commit metadata (SHA, message, author, date, URL)
+
+### API Optimization Strategy
+- Batch multiple repository queries into single GraphQL calls
+- **Implement aggressive caching (5-minute TTL) to avoid rate limits**
+- Use pagination for large organization repository lists
+- Minimize API calls by filtering repositories by recent push dates
+- Handle rate limiting with exponential backoff
+- **Rely heavily on caching - only refresh data when explicitly requested**
+- **Never refresh tables/data automatically - only on manual refresh button click**
+
+## User Interface Design
+
+### Layout Structure
+Create a responsive dashboard with these sections:
+
+1. **Header Bar**:
+   - App title with GitHub icon
+   - User avatar and name
+   - Settings/theme toggle button
+
+2. **Main Content Area** (Two-column layout):
+   - **Left Column**: Commit Stream
+   - **Right Column**: Pull Request Stream
+   - Each column should be scrollable containers (900px height)
+   - Below each stream: activity charts showing user contribution patterns
+
+3. **Secondary Sections** (Full-width below streams):
+   - **Global Search Bar**: Search across all commits/PRs by message content or author
+   - **Commits by Repository Table**: Single table with repository dropdown filter
+   - Repository selector control that filters existing data client-side (no API calls)
+   - **Activity Heatmap**: "Most active hours" visualization showing team commit patterns
+
+4. **Sidebar** (Collapsible):
+   - User profile information
+   - Performance metrics (API fetch times)
+   - **Refresh controls with manual refresh button**
+   - **Debug mode toggle (disabled refresh button in debug mode)**
+   - **Light/Dark mode toggle**
+
+### Stream Formatting Specifications
+
+#### Commit Stream Items
+Each commit should display:
+- **Repository name** (linked) with TODAY badge if from today
+- **Branch name** in code formatting
+- **Commit message** (italicized, truncated to 100 chars)
+- **SHA link** (7 chars) and author name
+- **Date/time** with color coding based on recency
+- **Timeline emoji** indicating age (🌟 today, 🌙 yesterday, ☄️ this week, ⭐ older)
+
+#### Pull Request Stream Items
+Each PR should display:
+- **Repository name** (linked) with TODAY badge if from today
+- **PR number** (linked) and title
+- **Status emoji** (🔄 Open, ✅ Merged, ❌ Closed)
+- **Author name** and date/time with color coding
+- **Timeline emoji** based on creation/merge date
+
+### Color Scheme and Styling
+
+#### Date-based Color Coding (Project Hex Colors)
+- **Today**: #9C27B0 (purple) with 🌟 emoji
+- **Yesterday**: #43A047 (green) with 🌙 emoji  
+- **This Week**: #FB8C00 (orange) with ☄️ emoji
+- **Older**: #FFFFFF (white) with ⭐ emoji
+
+#### TODAY Badge Styling
+- Gradient background: #ff8f00 to #f57c00
+- White text with subtle shadow
+- Rounded corners (10px border-radius)
+- Small padding (2px 6px)
+- Font weight 600, size 9px
+
+#### Additional Project Colors
+- **Chart Blue**: #4A90E2 (commit charts)
+- **Chart Blue Alt**: #5B9BD5 (PR charts)
+- **Chart Borders**: #2C5AA0 (commit), #3A7BD5 (PR)
+- **Badge Orange**: #ff6f00 (special highlighting)
+- **Open PR Background**: #e3f2fd with text #1565c0
+- **Merged PR Background**: #e8f5e8 with text #2e7d32
+
+#### Stream Container Styling
+- Subtle border with transparency
+- Gradient background (rgba overlays)
+- Backdrop blur effect
+- Subtle box shadow
+- Rounded corners
+
+### Chart Implementation
+
+Create two activity charts using Chart.js or Recharts:
+
+1. **Commit Activity Chart**:
+   - Vertical bar chart showing commits per user
+   - Blue color scheme (#4A90E2)
+   - Top 8 contributors
+   - Truncate long usernames (12 chars + "...")
+
+2. **PR Activity Chart**:
+   - Vertical bar chart showing PRs per user
+   - Different blue shade (#5B9BD5)
+   - Combined open + merged PRs
+   - Same styling as commit chart
+
+## Data Processing Requirements
+
+### Date and Time Handling
+- Convert all GitHub UTC timestamps to local timezone
+- Format as "YYYY-MM-DD HH:MM AM/PM EST"
+- Implement recency calculation for color/emoji assignment
+- Filter streams to show only last 5 days of activity
+
+### Content Processing
+- Truncate commit messages and PR titles to 100 characters
+- Extract repository display names from full paths
+- Safe field extraction with fallbacks for missing data
+- Sort all streams by date (newest first)
+
+### Performance Optimization
+- Implement data caching with 5-minute expiration
+- Lazy load detailed tables
+- Virtualize long lists if needed
+- **Client-side filtering**: Repository dropdown filters pre-loaded data without API calls
+- **Debounced search**: 300ms debounce for global search to prevent excessive filtering
+- **Search indexing**: Pre-process commit/PR data into searchable format for instant results
+- **Memoized components**: React.memo for expensive chart and table renders
+
+## Security Considerations
+
+- **CRITICAL**: Never expose GitHub tokens in client-side code
+- **All GitHub API calls must be server-side only** using Next.js API routes
+- **No OAuth implementation** - use server-side token authentication only
+- Validate and sanitize all user inputs
+- Use environment variables for sensitive configuration
+- **Client-side filtering is acceptable** for performance (data already fetched)
+- **Organization discovery** should be server-side but app reads TARGET_ORGANIZATIONS from .env
+- **Repository filtering** based on .env TARGET_ORGANIZATIONS variable
+
+## Responsive Design Requirements
+
+- Mobile-first approach with breakpoint design
+- Collapsible sidebar on mobile devices
+- Stack stream columns vertically on small screens
+- Touch-friendly controls and buttons
+- Maintain readability at all screen sizes
+
+## Development Features
+
+### Debug Mode vs Production Data
+- **Debug Mode (NEXT_PUBLIC_DEBUG_MODE=true)**:
+  - Show mock data instead of real GitHub API calls
+  - Display comprehensive timing information in console
+  - Show detailed error messages in error boundaries
+  - **Disable refresh button** to prevent accidental API calls
+  - Mock data should be realistic and demonstrate all features
+- **Production Mode (NEXT_PUBLIC_DEBUG_MODE=false)**:
+  - Fetch real data from GitHub API
+  - Enable refresh button functionality
+  - Show user-friendly error messages
+  - Log errors to backend console only
+- **Data Refresh Strategy**:
+  - Data refreshes only on page load and manual refresh button click
+  - **No automatic refresh intervals**
+  - Cache data locally to minimize API calls
+
+### User Experience
+- Loading skeletons during data fetch
+- Smooth transitions and animations
+- Infinite scroll or pagination for large datasets
+- Search and filter capabilities
+- Keyboard shortcuts for common actions
+
+## Material UI Theming Requirements
+
+### Light and Dark Mode Support
+- **Light Mode**: Default Material UI light theme with project colors
+- **Dark Mode**: Material UI dark theme with adjusted project colors
+- **Theme Toggle**: Client-side toggle in sidebar
+- **Persistence**: Save theme preference in localStorage
+- **Colors in Dark Mode**:
+  - Maintain color contrast ratios for accessibility
+  - Adjust background colors while preserving accent colors
+  - Ensure TODAY badges and date colors remain visible
+
+### Theme Implementation
+```typescript
+const lightTheme = createTheme({
+  palette: {
+    mode: 'light',
+    primary: { main: '#4A90E2' },
+    secondary: { main: '#9C27B0' },
+    // ... project colors
+  }
+});
+
+const darkTheme = createTheme({
+  palette: {
+    mode: 'dark',
+    primary: { main: '#5B9BD5' },
+    secondary: { main: '#9C27B0' },
+    // ... adjusted project colors
+  }
+});
+```
+
+## Organization and Repository Discovery
+
+### Organization Discovery
+- **Server-side discovery**: App can discover user's organizations via GitHub API
+- **Environment filtering**: Only fetch repositories from organizations listed in TARGET_ORGANIZATIONS .env variable
+- **Repository selection**: Filter repositories based on .env configuration, not all accessible repos
+- **Local caching**: Cache organization and repository data to minimize API calls
+
+### Repository Filtering Strategy
+```typescript
+// Example .env configuration
+TARGET_ORGANIZATIONS="myorg,anotherorg,thirdorg"
+
+// Server-side filtering logic
+const targetOrgs = process.env.TARGET_ORGANIZATIONS?.split(',') || [];
+const filteredRepos = allRepos.filter(repo => 
+  targetOrgs.includes(repo.owner.login)
+);
+```
+
+## Implementation Priority
+
+1. **Phase 1**: Basic layout, token-based authentication, user info display
+2. **Phase 2**: Repository discovery and bulk data fetching
+3. **Phase 3**: Commit and PR streams with formatting
+4. **Phase 4**: Activity charts and commits by repository table
+5. **Phase 5**: Global search functionality with debounced filtering
+6. **Phase 6**: Activity heatmap visualization
+7. **Phase 7**: Responsive design and performance optimization
+8. **Phase 8**: Advanced features (settings, keyboard shortcuts)
+
+## Key Success Metrics
+
+- **Performance**: Initial page load under 3 seconds
+- **API Efficiency**: Minimize GitHub API calls through batching and caching
+- **User Experience**: Smooth scrolling streams with manual refresh capability
+- **Visual Fidelity**: Match the color coding and badge styling exactly using project hex colors
+- **Functionality**: Complete feature parity with Python version
+- **Security**: Zero client-side token exposure
+- **Debug Experience**: Full mock data functionality in debug mode
+- **Production Reliability**: All features working with real data (no perpetual loaders)
+- **Rate Limit Compliance**: Effective caching strategy to stay within GitHub API limits
+
+## Advanced Features Implementation
+
+### Global Search Implementation
+Create a comprehensive search system with these specifications:
+
+**Search Interface**:
+- Prominent search bar with Material UI TextField
+- Search icon with clear button when text is entered
+- Placeholder: "Search commits and PRs by message or author..."
+- Real-time search results counter: "X results found"
+
+**Search Functionality**:
+- **Scope**: Search across all commits AND pull requests simultaneously
+- **Fields**: Commit messages, PR titles, author names
+- **Algorithm**: Case-insensitive substring matching with optional fuzzy matching
+- **Performance**: 300ms debounce with pre-indexed data for instant results
+- **Results**: Highlight matching text in search results
+
+**Search Results Display**:
+- Combined results showing both commits and PRs
+- Visual distinction between commit and PR results
+- Maintain original formatting (TODAY badges, color coding, emojis)
+- Sort by relevance score then by date
+- Limit initial display to 50 results with "Show more" option
+
+**Search Index Structure**:
+```typescript
+interface SearchIndex {
+  commits: Array<{
+    id: string;
+    searchText: string; // message + author concatenated
+    originalData: CommitData;
+  }>;
+  prs: Array<{
+    id: string;
+    searchText: string; // title + author concatenated
+    originalData: PRData;
+  }>;
+}
+```
+
+### Activity Heatmap Implementation
+Create a time-based activity visualization showing commit patterns:
+
+**Heatmap Design**:
+- **Layout**: 7 days (rows) × 24 hours (columns) grid
+- **Time Zone**: Display in user's local timezone
+- **Data Source**: All commits from fetched data (not limited to 5-day window)
+- **Color Scheme**: Green intensity scale (GitHub-style)
+  - 0 commits: #f0f0f0 (light gray)
+  - 1-2 commits: #c6e48b (light green)
+  - 3-5 commits: #7bc96f (medium green)
+  - 6-10 commits: #239a3b (dark green)
+  - 11+ commits: #196127 (darkest green)
+
+**Heatmap Features**:
+- **Tooltips**: Show exact count and time on hover
+- **Interactive**: Click cell to filter main view to that time period
+- **Responsive**: Scale appropriately for mobile devices
+- **Loading State**: Skeleton grid while data processes
+
+**Data Processing**:
+- Group commits by day of week and hour of day
+- Calculate commit counts for each time slot
+- Handle timezone conversion for accurate local time display
+- Efficient aggregation using Map/Set for O(1) lookups
+
+**Implementation Libraries**:
+- Use Recharts or D3.js for heatmap visualization
+- Custom component with Material UI styling
+- Memoize heatmap data calculation for performance
+
+### Table Implementation Details
+
+#### Commits by Repository Table
+Create a single detailed table showing commits with these features:
+
+**Table Structure**:
+- Repository column (linked to GitHub)
+- Branch column (linked to GitHub branch)
+- SHA column (7 chars, linked to commit)
+- Commit message (truncated, expandable on hover)
+- Author name
+- Date/time with TODAY highlighting
+
+**Filtering Behavior**:
+- Repository dropdown populated from all commit data
+- Dropdown selection filters table rows client-side
+- No additional API calls when changing repository selection
+- Include "All Repositories" option to show unfiltered data
+- Display count: "Showing X of Y commits for [Repository Name]"
+- **Search Integration**: Table respects global search filter
+
+**Table Features**:
+- Sortable columns (especially by date)
+- Fixed height container (350px) with internal scrolling
+- Row highlighting for today's commits with TODAY badge
+- Responsive column sizing
+- Loading state during initial data fetch
+- **Search highlighting**: Highlight search terms in commit messages
+
+## Performance Monitoring & Debugging
+
+### Console Timing Statistics
+Implement comprehensive timing logs for performance monitoring and debugging:
+
+**API Call Timing**:
+```typescript
+// Example console output format
+console.group('🔍 GitHub API Performance');
+console.time('Total API Fetch');
+console.time('User Info Query');
+console.time('Repository Discovery');
+console.time('Bulk Data Query');
+console.time('Commit Stream Query');
+
+// Individual API call logs
+console.log('📊 User Info Query: 234ms');
+console.log('📦 Repository Discovery: 567ms (45 repos found)');
+console.log('🔄 Bulk Data Query: 1.2s (commits: 342, PRs: 89)');
+console.log('💾 Commit Stream Query: 890ms (15 active repos, 156 commits)');
+console.timeEnd('Total API Fetch'); // Total API Fetch: 2.891s
+console.groupEnd();
+```
+
+**Data Processing Timing**:
+```typescript
+console.group('⚙️ Data Processing Performance');
+console.time('Search Index Building');
+console.time('Heatmap Data Aggregation');
+console.time('Stream Filtering');
+console.time('Chart Data Preparation');
+
+// Processing logs with data sizes
+console.log('🔍 Search Index: 123ms (indexed 498 items)');
+console.log('🔥 Heatmap Aggregation: 45ms (processed 342 commits)');
+console.log('📊 Chart Data Prep: 23ms (8 contributors)');
+console.timeEnd('Search Index Building');
+console.groupEnd();
+```
+
+**Component Render Timing**:
+```typescript
+console.group('🎨 Component Render Performance');
+console.time('Initial Page Load');
+console.time('Stream Components');
+console.time('Chart Renders');
+console.time('Table Render');
+
+// Component-specific timing
+console.log('📱 Commit Stream: 67ms (156 items rendered)');
+console.log('📋 PR Stream: 34ms (89 items rendered)');
+console.log('📊 Activity Charts: 123ms (2 charts rendered)');
+console.log('📄 Commits Table: 89ms (342 rows, virtualized)');
+console.timeEnd('Initial Page Load'); // Initial Page Load: 3.234s
+console.groupEnd();
+```
+
+**Search Performance Tracking**:
+```typescript
+// Search operation timing
+console.group('🔍 Search Performance');
+console.time('Search Execution');
+console.log(`🔍 Search query: "${searchTerm}" (${searchTerm.length} chars)`);
+console.log(`📊 Results: ${results.length} items found in ${searchTime}ms`);
+console.log(`💾 Index size: ${searchIndex.commits.length + searchIndex.prs.length} total items`);
+console.timeEnd('Search Execution');
+console.groupEnd();
+```
+
+**Cache Performance Monitoring**:
+```typescript
+console.group('💾 Cache Performance');
+console.log('📦 Repository Data: Cache HIT (saved 567ms)');
+console.log('🔄 Bulk Data: Cache MISS - fetching fresh data');
+console.log('👤 User Info: Cache HIT (saved 234ms)');
+console.log(`⏰ Cache TTL remaining: ${remainingTTL}ms`);
+console.groupEnd();
+```
+
+**Memory Usage Tracking**:
+```typescript
+// Memory usage monitoring (development only)
+if (process.env.NODE_ENV === 'development') {
+  console.group('💾 Memory Usage');
+  console.log(`📊 Commits in memory: ${commits.length} items`);
+  console.log(`📋 PRs in memory: ${prs.length} items`);
+  console.log(`🔍 Search index size: ${searchIndexSize} bytes`);
+  console.log(`🔥 Heatmap data: ${heatmapDataSize} bytes`);
+  if (performance.memory) {
+    console.log(`📱 Heap used: ${(performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(2)}MB`);
+    console.log(`📱 Heap total: ${(performance.memory.totalJSHeapSize / 1024 / 1024).toFixed(2)}MB`);
+  }
+  console.groupEnd();
+}
+```
+
+**Implementation Guidelines**:
+- **Development Only**: All timing logs should be conditionally enabled in development mode
+- **Grouped Logging**: Use console.group() for organized, collapsible log sections
+- **Contextual Data**: Include relevant data sizes, item counts, and cache status
+- **Color Coding**: Use emojis and consistent prefixes for easy log scanning
+- **Performance Budget**: Log warnings when operations exceed expected thresholds
+- **User Setting**: Provide a debug toggle in the sidebar to enable/disable verbose logging
+
+**Performance Thresholds**:
+```typescript
+const PERFORMANCE_THRESHOLDS = {
+  apiCall: 1000,      // Warn if API call > 1s
+  dataProcessing: 500, // Warn if processing > 500ms
+  componentRender: 200, // Warn if render > 200ms
+  searchOperation: 100, // Warn if search > 100ms
+};
+
+// Example threshold warning
+if (apiCallTime > PERFORMANCE_THRESHOLDS.apiCall) {
+  console.warn(`⚠️ Slow API call detected: ${apiCallTime}ms (threshold: ${PERFORMANCE_THRESHOLDS.apiCall}ms)`);
+}
+```
+
+## Dependency Management
+
+### Pin Dependencies for Stability
+Once you find working versions of dependencies, **pin them exactly** in package.json:
+
+```json
+{
+  "dependencies": {
+    "next": "14.0.4",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "@mui/material": "5.15.0",
+    "@apollo/client": "3.8.8",
+    "chart.js": "4.4.0",
+    "react-chartjs-2": "5.2.0"
+  },
+  "devDependencies": {
+    "typescript": "5.3.3",
+    "@types/react": "18.2.45",
+    "@types/node": "20.10.4",
+    "eslint": "8.56.0"
+  }
+}
+```
+
+**Rationale**: Prevents breaking changes from automatic updates, ensures consistent builds across environments, and maintains application stability.
+
+## Documentation Requirements
+
+### Comprehensive README.md
+Create a detailed README.md with these sections:
+
+#### 1. Project Overview
+- Brief description of the GitHub Dashboard
+- Key features and capabilities
+- Technology stack overview
+- Screenshots/GIFs of the application
+
+#### 2. Prerequisites
+- Node.js version requirement (e.g., Node.js 18+ or 20+)
+- npm/yarn version requirements
+- GitHub account with appropriate permissions
+- Access to target organizations
+
+#### 3. Installation & Setup
+```markdown
+## Installation
+
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd github-dashboard
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Copy the example environment file:
+   ```bash
+   cp .env.example .env.local
+   ```
+
+4. Configure your environment variables (see Configuration section)
+
+5. Start the development server:
+   ```bash
+   npm run dev
+   ```
+
+6. Open [http://localhost:3000](http://localhost:3000) in your browser
+```
+
+#### 4. Configuration Guide
+- Detailed explanation of each environment variable
+- How to obtain a GitHub Personal Access Token
+- Required token scopes and permissions
+- Target organization setup
+- Debug mode configuration
+
+#### 5. GitHub Token Setup
+```markdown
+## GitHub Personal Access Token Setup
+
+1. Go to GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)
+2. Click "Generate new token (classic)"
+3. Select these scopes:
+   - `repo` - Full control of private repositories
+   - `read:org` - Read organization membership
+   - `read:user` - Read user profile information
+   - `read:project` - Read project boards
+4. Copy the token and add it to your `.env.local` file
+```
+
+#### 6. Available Scripts
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run start` - Start production server
+- `npm run lint` - Run ESLint
+- `npm run type-check` - Run TypeScript checks
+
+#### 7. Features & Usage
+- How to use debug mode
+- Light/dark mode toggle
+- Refresh functionality
+- Search capabilities
+- Organization filtering
+
+#### 8. Troubleshooting
+- Common issues and solutions
+- Rate limiting problems
+- Token permission errors
+- Build/deployment issues
+
+#### 9. Contributing
+- Development guidelines
+- Code style requirements
+- Testing requirements
+- PR submission process
+
+### Example Environment File (.env.example)
+Create a comprehensive `.env.example` file:
+
+```bash
+# ====================================
+# GitHub Dashboard Environment Configuration
+# ====================================
+
+# ---------------
+# SERVER-SIDE ONLY (NEVER EXPOSE TO CLIENT)
+# ---------------
+
+# GitHub Personal Access Token
+# Required scopes: repo, read:org, read:user, read:project
+# Get token from: https://github.com/settings/tokens
+GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Target Organizations (comma-separated, no spaces)
+# Only repositories from these organizations will be fetched
+# Example: "mycompany,myorg,opensource-org"
+TARGET_ORGANIZATIONS=myorg,anotherorg
+
+# API Configuration
+REPO_FETCH_LIMIT=25
+LOOK_BACK_DAYS=5
+
+# Environment
+NODE_ENV=development
+
+# ---------------
+# CLIENT-SIDE SAFE (Can be exposed to browser)
+# ---------------
+
+# Debug Mode - Shows mock data instead of real GitHub API calls
+# Set to 'false' for production
+NEXT_PUBLIC_DEBUG_MODE=true
+
+# Application Configuration
+NEXT_PUBLIC_APP_NAME="GitHub Dashboard"
+
+# Cache TTL in milliseconds (5 minutes = 300000)
+NEXT_PUBLIC_CACHE_TTL=300000
+
+# ---------------
+# SETUP INSTRUCTIONS
+# ---------------
+
+# 1. Copy this file to .env.local:
+#    cp .env.example .env.local
+#
+# 2. Replace the placeholder values above with your actual values
+#
+# 3. Ensure your GitHub token has the required scopes
+#
+# 4. Add your organization names to TARGET_ORGANIZATIONS
+#
+# 5. Set NEXT_PUBLIC_DEBUG_MODE=false for production use
+```
+
+#### 10. Deployment Guide
+- Environment setup for production
+- Environment variable configuration for deployment platforms
+- Build optimization recommendations
+- Performance monitoring setup
+
+## Additional Considerations
+
+- Implement proper error handling for GitHub API failures
+- Add retry logic for failed requests
+- Consider implementing real-time updates with WebSockets
+- Plan for offline mode with cached data
+- Ensure accessibility compliance (WCAG 2.1)
+- Add comprehensive testing (unit, integration, e2e)
+- **Data Management**: Store all fetched commit data in state for efficient client-side filtering
+- **Performance Monitoring**: Implement console timing for all major operations in development mode
+
+The final application should feel like a modern, professional developer dashboard that provides immediate insights into team productivity and recent GitHub activity across organizations.
+
+# =============================================================================
+# EXISTING CODEBASE REFERENCE
+# =============================================================================
+
+## Constants and Configuration (from constants.py)
+
+### Application Configuration
+```typescript
+// Replicate these exact values from constants.py
+const CONFIG = {
+  // Debug and file settings
+  DEBUG_DATA_FILENAME: "github_data.json",
+  COMMIT_STREAM_DEBUG_FILENAME: "cs_debug.json", 
+  LOOK_BACK_DAYS: 5,
+
+  // Repository and data limits
+  DEFAULT_REPO_FETCH_LIMIT: 25,
+  COMMIT_STREAM_REPO_LIMIT: 30,
+  COMMITS_PER_REPO_DEFAULT: 10,
+  MAX_REPOS_FOR_COMMIT_STREAM: 5,
+
+  // Timeout settings (in milliseconds for React)
+  REQUEST_TIMEOUT: 30000,
+  GRAPHQL_QUERY_TIMEOUT: 45000,
+
+  // UI Container Heights
+  STREAM_CONTAINER_HEIGHT: 900,
+  TABLE_CONTAINER_HEIGHT: 350,
+
+  // Text formatting limits
+  COMMIT_MESSAGE_MAX_LENGTH: 100,
+  PR_TITLE_MAX_LENGTH: 100,
+  DEFAULT_TEXT_TRUNCATION_SUFFIX: "...",
+
+  // Display counts
+  DEFAULT_DISPLAY_COUNT: 10,
+  MIN_DISPLAY_COUNT: 1,
+  MAX_DISPLAY_COUNT: 50,
+};
+```
+
+### Status and Emoji Mappings
+```typescript
+// Exact mappings from constants.py
+const PR_STATUS_EMOJIS = {
+  "Open": "🔄",
+  "Merged": "✅", 
+  "Closed": "❌"
+};
+
+const ACTIVITY_EMOJIS = {
+  "commit": "📝",
+  "pr": "🔀",
+  "repo": "📦", 
+  "branch": "🌿",
+  "author": "👤",
+  "date": "📅"
+};
+
+const TIMELINE_EMOJIS = {
+  "today": "🌟",
+  "yesterday": "🌙", 
+  "this_week": "☄️",
+  "older": "⭐"
+};
+```
+
+### Error and Info Messages
+```typescript
+// Complete error handling from constants.py
+const ERROR_MESSAGES = {
+  "no_token": "GITHUB_TOKEN environment variable not set.",
+  "no_repos": "No repositories found.",
+  "no_commits": "No commits found.", 
+  "no_prs": "No pull requests found.",
+  "api_error": "Error communicating with GitHub API.",
+  "timeout_error": "Request timed out.",
+  "file_not_found": "Debug file not found.",
+  "invalid_data": "Invalid data format received."
+};
+
+const INFO_MESSAGES = {
+  "debug_mode_on": "Debug Mode is ON. Using local data.",
+  "debug_mode_off": "Debug Mode is OFF. Fetching live data.",
+  "no_commits_this_week": "No commits this week.",
+  "no_prs_this_week": "No pull requests opened or merged this week.",
+  "refresh_data": "Refresh Live Data"
+};
+```
+
+## Required Utility Functions (from utils.py)
+
+### Date and Time Processing
+Implement these exact utility functions in TypeScript:
+
+```typescript
+// Convert UTC timestamp to local timezone formatted string
+function formatTimestampToLocal(utcTimestamp: string): string {
+  // Convert "2025-07-20T10:00:00Z" to "2025-07-20 03:00 PM EST"
+  const utcDate = new Date(utcTimestamp);
+  return utcDate.toLocaleString('en-US', {
+    year: 'numeric',
+    month: '2-digit', 
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+    timeZoneName: 'short'
+  });
+}
+
+// Check if UTC timestamp is today in local timezone  
+function isTimestampTodayLocal(utcTimestamp: string): boolean {
+  const utcDate = new Date(utcTimestamp);
+  const today = new Date();
+  return utcDate.toDateString() === today.toDateString();
+}
+
+// Get color coding and emoji for dates based on recency
+function getDateColorAndEmoji(utcTimestamp: string): [string, string] {
+  const utcDate = new Date(utcTimestamp);
+  const today = new Date();
+  const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+  const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+  
+  const itemDate = utcDate.toDateString();
+  
+  if (itemDate === today.toDateString()) {
+    return [DATE_COLORS.today, TIMELINE_EMOJIS.today];
+  } else if (itemDate === yesterday.toDateString()) {
+    return [DATE_COLORS.yesterday, TIMELINE_EMOJIS.yesterday];
+  } else if (utcDate >= weekAgo) {
+    return [DATE_COLORS.this_week, TIMELINE_EMOJIS.this_week];
+  } else {
+    return [DATE_COLORS.older, TIMELINE_EMOJIS.older];
+  }
+}
+
+// Extract repository name from full path
+function getRepositoryDisplayName(repoFullName: string): string {
+  return repoFullName.split("/").pop() || repoFullName;
+}
+
+// Safely get field from commit data with fallback
+function safeGetCommitField(commit: any, field: string, defaultValue: string = "Unknown"): string {
+  return commit?.[field] || defaultValue;
+}
+
+// Truncate text to maximum length with suffix
+function truncateText(text: string, maxLength: number, suffix: string = "..."): string {
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength - suffix.length) + suffix;
+}
+
+// Calculate days ago from timestamp
+function calculateDaysAgo(utcTimestamp: string): number {
+  const utcDate = new Date(utcTimestamp);
+  const today = new Date();
+  return Math.floor((today.getTime() - utcDate.getTime()) / (24 * 60 * 60 * 1000));
+}
+```
+
+## GraphQL Query Patterns (from github_service_graphql.py)
+
+### Core GraphQL Fragments
+```graphql
+# Repository fields fragment (reuse in all queries)
+fragment RepositoryFields on Repository {
+  name
+  nameWithOwner
+  url
+  pushedAt
+  isPrivate
+  defaultBranchRef {
+    name
+  }
+}
+
+# Commit fields fragment  
+fragment CommitFields on Commit {
+  oid
+  message
+  committedDate
+  author {
+    name
+    email
+    user {
+      login
+    }
+  }
+  url
+}
+
+# Pull request fields fragment
+fragment PullRequestFields on PullRequest {
+  number
+  title
+  url
+  createdAt
+  mergedAt
+  state
+  author {
+    login
+  }
+  repository {
+    nameWithOwner
+    url
+  }
+}
+```
+
+### User Information Query
+```graphql
+query GetUserInfo {
+  viewer {
+    login
+    name
+    email
+    bio
+    company
+    location
+    avatarUrl
+    url
+    createdAt
+    followers {
+      totalCount
+    }
+    following {
+      totalCount
+    }
+    repositories(first: 1) {
+      totalCount
+    }
+    contributionsCollection {
+      totalCommitContributions
+      totalPullRequestContributions
+      totalIssueContributions
+      totalRepositoryContributions
+    }
+  }
+}
+```
+
+## Mock Data Structure Examples
+
+### Debug Data Format (github_data.json)
+```typescript
+interface MockCommit {
+  repo: string;                    // "cfech/github-dashboard"
+  repo_url: string;               // "https://github.com/cfech/github-dashboard"
+  branch_name: string;            // "main"
+  branch_url: string;             // "https://github.com/cfech/github-dashboard/tree/main"
+  sha: string;                    // "d332219" (7 chars)
+  message: string;                // "No message" or actual commit message
+  author: string;                 // "Connor Fech"
+  date: string;                   // "2025-07-22T05:47:04Z" (ISO UTC)
+  url: string;                    // "https://github.com/cfech/github-dashboard/commit/..."
+}
+
+interface MockPR {
+  repo: string;
+  repo_url: string;
+  number: number;
+  title: string;
+  state: "Open" | "Merged" | "Closed";
+  author: string;
+  created_at: string;             // ISO UTC timestamp
+  merged_at?: string;             // ISO UTC timestamp (if merged)
+  url: string;
+}
+
+interface MockData {
+  commits: MockCommit[];
+  pull_requests: MockPR[];
+  user_info: {
+    login: string;
+    name: string;
+    avatar_url: string;
+    // ... other user fields
+  };
+}
+```
+
+### Create Comprehensive Mock Data
+Generate realistic mock data that demonstrates:
+- Multiple repositories across different organizations
+- Commits from different time periods (today, yesterday, this week, older)
+- Various commit message lengths and authors
+- Pull requests in different states (Open, Merged, Closed)  
+- Different branch names and repository types
+- Realistic GitHub URLs and SHA values
+
+## API Request Patterns
+
+### Request Headers (from github_service_graphql.py)
+```typescript
+const headers = {
+  "Authorization": `Bearer ${process.env.GITHUB_TOKEN}`,
+  "Content-Type": "application/json"
+};
+```
+
+### Error Handling Pattern
+```typescript
+async function executeGraphQLQuery(query: string, variables?: any) {
+  try {
+    const response = await fetch(GITHUB_API_URL, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ query, variables }),
+      timeout: GRAPHQL_QUERY_TIMEOUT
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const result = await response.json();
+    
+    if (result.errors) {
+      console.error('GraphQL errors:', result.errors);
+      throw new Error(`GraphQL error: ${result.errors[0].message}`);
+    }
+    
+    return result.data;
+  } catch (error) {
+    console.error('API request failed:', error);
+    throw error;
+  }
+}
+```
+
+## UI Container Specifications
+
+### Stream Container Styling (replicate exactly)
+```css
+/* From constants.py CSS specifications */
+.stream-container {
+  height: 900px;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+.table-container {
+  height: 350px;
+  overflow-y: auto;
+}
+
+.today-badge {
+  background: linear-gradient(45deg, #ff8f00, #f57c00);
+  color: white;
+  border-radius: 10px;
+  padding: 2px 6px;
+  font-weight: 600;
+  font-size: 9px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+```
+
+## Performance Requirements
+
+Based on the existing Python implementation:
+- Cache API responses for 5-minute TTL
+- Display timing metrics in debug mode
+- Implement request timeouts (30s for regular, 45s for GraphQL)
+- Handle rate limiting gracefully
+- Show loading states during API calls
+- Minimize API calls through efficient batching
+
+## Testing Patterns
+
+Create tests that verify:
+- Date/time utility functions work correctly across timezones
+- Text truncation handles edge cases
+- Color/emoji assignment matches time periods
+- Mock data loading in debug mode
+- API error handling and retry logic
+- GraphQL query execution and parsing
