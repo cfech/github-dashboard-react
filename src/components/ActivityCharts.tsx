@@ -36,6 +36,41 @@ interface ActivityChartsProps {
 }
 
 export default function ActivityCharts({ commits, pullRequests }: ActivityChartsProps) {
+  // Calculate the earliest data point for the notice
+  const earliestDataInfo = useMemo(() => {
+    const allDates: Date[] = [];
+    
+    // Add commit dates
+    commits.forEach(commit => {
+      if (commit.date) {
+        allDates.push(new Date(commit.date));
+      }
+    });
+    
+    // Add PR dates
+    pullRequests.forEach(pr => {
+      if (pr.created_at) {
+        allDates.push(new Date(pr.created_at));
+      }
+    });
+    
+    if (allDates.length === 0) {
+      return null;
+    }
+    
+    const earliestDate = new Date(Math.min(...allDates.map(d => d.getTime())));
+    const totalItems = commits.length + pullRequests.length;
+    
+    return {
+      date: earliestDate.toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      }),
+      totalItems
+    };
+  }, [commits, pullRequests]);
+
   const commitChartData = useMemo(() => {
     const commitsByUser = commits.reduce((acc, commit) => {
       const author = truncateText(commit.author, 12);
@@ -43,9 +78,10 @@ export default function ActivityCharts({ commits, pullRequests }: ActivityCharts
       return acc;
     }, {} as Record<string, number>);
 
+    // Include ALL users with more than 10 commits, sorted by count
     const sortedUsers = Object.entries(commitsByUser)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 8);
+      .filter(([, count]) => count > 10)
+      .sort(([, a], [, b]) => b - a);
 
     return {
       labels: sortedUsers.map(([user]) => user),
@@ -68,9 +104,10 @@ export default function ActivityCharts({ commits, pullRequests }: ActivityCharts
       return acc;
     }, {} as Record<string, number>);
 
+    // Include ALL users with more than 10 PRs, sorted by count
     const sortedUsers = Object.entries(prsByUser)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 8);
+      .filter(([, count]) => count > 10)
+      .sort(([, a], [, b]) => b - a);
 
     return {
       labels: sortedUsers.map(([user]) => user),
@@ -111,36 +148,52 @@ export default function ActivityCharts({ commits, pullRequests }: ActivityCharts
   if (process.env.NODE_ENV === 'development') {
     console.group('📊 Chart Data Preparation');
     console.time('Chart Data Prep');
-    console.log(`📊 Commit Chart: ${commitChartData.labels.length} contributors`);
-    console.log(`📋 PR Chart: ${prChartData.labels.length} contributors`);
+    console.log(`📊 Commit Chart: ${commitChartData.labels.length} contributors with 10+ commits`);
+    console.log(`📋 PR Chart: ${prChartData.labels.length} contributors with 10+ PRs`);
     console.timeEnd('Chart Data Prep');
     console.groupEnd();
   }
 
   return (
     <Box sx={{ mt: 4 }}>
-      <Typography variant="h6" gutterBottom>
-        📊 Activity Charts
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h6">
+          📊 Activity Charts
+        </Typography>
+        
+        {earliestDataInfo && (
+          <Typography 
+            variant="caption" 
+            color="text.secondary"
+            sx={{ 
+              fontStyle: 'italic',
+              opacity: 0.7,
+              fontSize: '0.75rem'
+            }}
+          >
+            Data from {earliestDataInfo.date} ({earliestDataInfo.totalItems} items)
+          </Typography>
+        )}
+      </Box>
       
       <Grid container spacing={3}>
-        <Grid item xs={12} md={6}>
+        <Grid item xs={12}>
           <Paper sx={{ p: 3 }}>
             <Typography variant="subtitle1" gutterBottom align="center">
-              Commit Activity
+              Commit Activity (Contributors with 10+ commits)
             </Typography>
-            <Box sx={{ height: 300 }}>
+            <Box sx={{ height: 350 }}>
               <Bar data={commitChartData} options={chartOptions} />
             </Box>
           </Paper>
         </Grid>
         
-        <Grid item xs={12} md={6}>
+        <Grid item xs={12}>
           <Paper sx={{ p: 3 }}>
             <Typography variant="subtitle1" gutterBottom align="center">
-              Pull Request Activity
+              Pull Request Activity (Contributors with 10+ PRs)
             </Typography>
-            <Box sx={{ height: 300 }}>
+            <Box sx={{ height: 350 }}>
               <Bar data={prChartData} options={chartOptions} />
             </Box>
           </Paper>

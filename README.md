@@ -72,6 +72,13 @@ Edit `.env.local` with your configuration:
 # Server-side only (NEVER expose to client)
 GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 TARGET_ORGANIZATIONS=myorg,anotherorg
+
+# GitHub Server Configuration (Optional - for GitHub Enterprise)
+GITHUB_API_URL=https://api.github.com/graphql
+GITHUB_BASE_URL=https://github.com
+GITHUB_RAW_URL=https://raw.githubusercontent.com
+
+# API Configuration
 REPO_FETCH_LIMIT=25
 LOOK_BACK_DAYS=5
 

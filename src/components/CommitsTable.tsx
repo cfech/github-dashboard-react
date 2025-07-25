@@ -11,14 +11,12 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   Link,
   Chip,
   TableSortLabel,
-  CircularProgress
+  CircularProgress,
+  Autocomplete,
+  TextField
 } from '@mui/material';
 import { AccountTree as GitBranch } from '@mui/icons-material';
 import { GitHubCommit } from '@/types/github';
@@ -53,8 +51,8 @@ export default function CommitsTable({ commits, repositories = [], searchTerm = 
   const [tableLoading, setTableLoading] = useState(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
-  // Combine all available repositories (from commits + from API) - optimized
-  const allRepositories = useMemo(() => {
+  // Combine all available repositories (from commits + from API) - optimized with display options
+  const repositoryOptions = useMemo(() => {
     const repoSet = new Set<string>();
     
     // Add repos from commits
@@ -63,8 +61,23 @@ export default function CommitsTable({ commits, repositories = [], searchTerm = 
     // Add repos from API
     repositories.forEach(repo => repoSet.add(repo.nameWithOwner));
     
-    return Array.from(repoSet).sort();
+    const sortedRepos = Array.from(repoSet).sort();
+    
+    // Create options array with "All Repositories" first
+    return [
+      { value: 'all', label: 'All Repositories' },
+      ...sortedRepos.map(repo => ({
+        value: repo,
+        label: repo.split('/')[1] || repo, // Show just the repo name, not owner/repo
+        fullName: repo // Keep full name for reference
+      }))
+    ];
   }, [commits, repositories]);
+
+  // Get the currently selected repository option
+  const selectedRepoOption = useMemo(() => {
+    return repositoryOptions.find(option => option.value === selectedRepo) || repositoryOptions[0];
+  }, [selectedRepo, repositoryOptions]);
 
   // Combine original commits with additionally fetched commits
   const allCommits = useMemo(() => {
@@ -132,7 +145,8 @@ export default function CommitsTable({ commits, repositories = [], searchTerm = 
     // Set new timeout for search-triggered fetching
     if (searchTerm && searchTerm.length >= 3) {
       searchTimeoutRef.current = setTimeout(() => {
-        const reposWithoutData = allRepositories.filter(repo => 
+        const allRepoValues = repositoryOptions.slice(1).map(opt => opt.value); // Skip "all" option
+        const reposWithoutData = allRepoValues.filter(repo => 
           !allCommits.some(commit => commit.repo === repo) &&
           !searchTriggeredLoading.includes(repo)
         );
@@ -155,7 +169,7 @@ export default function CommitsTable({ commits, repositories = [], searchTerm = 
         clearTimeout(searchTimeoutRef.current);
       }
     };
-  }, [searchTerm, allRepositories, allCommits, searchTriggeredLoading, fetchRepoCommits]);
+  }, [searchTerm, repositoryOptions, allCommits, searchTriggeredLoading, fetchRepoCommits]);
 
   // Pre-process commits with lowercase search strings for better performance
   const preprocessedCommits = useMemo(() => {
@@ -305,40 +319,64 @@ export default function CommitsTable({ commits, repositories = [], searchTerm = 
           📄 Commits by Repository
         </Typography>
         
-        <FormControl sx={{ minWidth: 200 }}>
-          <InputLabel id="repo-select-label">Repository</InputLabel>
-          <Select
-            labelId="repo-select-label"
-            value={selectedRepo}
-            label="Repository"
-            onChange={(e) => handleRepoChange(e.target.value)}
-          >
-            <MenuItem value="all">All Repositories</MenuItem>
-            {allRepositories.map((repo) => {
-              const hasCommits = allCommits.some(commit => commit.repo === repo);
-              const isLoading = loadingRepo === repo;
-              
+        <Autocomplete
+          sx={{ minWidth: 250 }}
+          options={repositoryOptions}
+          value={selectedRepoOption}
+          onChange={(event, newValue) => {
+            if (newValue) {
+              handleRepoChange(newValue.value);
+            }
+          }}
+          getOptionLabel={(option) => option.label}
+          renderOption={(props, option) => {
+            if (option.value === 'all') {
               return (
-                <MenuItem key={repo} value={repo}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
-                    <span>{repo.split('/')[1] || repo}</span>
+                <Box component="li" {...props}>
+                  {option.label}
+                </Box>
+              );
+            }
+            
+            const hasCommits = allCommits.some(commit => commit.repo === option.value);
+            const isLoading = loadingRepo === option.value;
+            
+            return (
+              <Box component="li" {...props}>
+                <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', justifyContent: 'space-between' }}>
+                  <Box>
+                    <Typography variant="body2">{option.label}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {option.fullName || option.value}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     {isLoading && (
-                      <CircularProgress size={16} sx={{ ml: 1 }} />
+                      <CircularProgress size={16} />
                     )}
                     {!hasCommits && !isLoading && (
                       <Chip 
                         label="Load data" 
                         size="small" 
                         variant="outlined" 
-                        sx={{ ml: 1, height: 20, fontSize: '0.65rem' }} 
+                        sx={{ height: 20, fontSize: '0.6rem' }} 
                       />
                     )}
                   </Box>
-                </MenuItem>
-              );
-            })}
-          </Select>
-        </FormControl>
+                </Box>
+              </Box>
+            );
+          }}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label="Repository"
+              placeholder="Search repositories..."
+              variant="outlined"
+            />
+          )}
+          isOptionEqualToValue={(option, value) => option.value === value.value}
+        />
       </Box>
 
       {/* Search loading indicator */}
@@ -355,9 +393,9 @@ export default function CommitsTable({ commits, repositories = [], searchTerm = 
         Showing {visibleCommits.length} of {filteredAndSortedCommits.length} commits
         {selectedRepo !== 'all' && ` for ${selectedRepo.split('/')[1] || selectedRepo}`}
         {searchTerm && ` matching &quot;${searchTerm}&quot;`}
-        {searchTerm && allRepositories.length > allRepositories.filter(repo => allCommits.some(commit => commit.repo === repo)).length && (
+        {searchTerm && repositoryOptions.length > 1 && repositoryOptions.slice(1).length > repositoryOptions.slice(1).filter(opt => allCommits.some(commit => commit.repo === opt.value)).length && (
           <Chip 
-            label={`${allRepositories.length - allRepositories.filter(repo => allCommits.some(commit => commit.repo === repo)).length} repos not searched yet`}
+            label={`${repositoryOptions.slice(1).length - repositoryOptions.slice(1).filter(opt => allCommits.some(commit => commit.repo === opt.value)).length} repos not searched yet`}
             size="small" 
             color="warning" 
             variant="outlined"

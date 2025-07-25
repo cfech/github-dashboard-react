@@ -137,7 +137,7 @@ export const GET_REPOSITORY_ALL_BRANCHES_COMMITS_QUERY = `
           name
           target {
             ... on Commit {
-              history(first: 50) {
+              history(first:100) {
                 nodes {
                   ...CommitFields
                 }
@@ -154,7 +154,7 @@ export const GET_REPOSITORY_ALL_BRANCHES_COMMITS_QUERY = `
 export const GET_REPOSITORY_PRS_QUERY = `
   query GetRepositoryPRs($owner: String!, $name: String!) {
     repository(owner: $owner, name: $name) {
-      pullRequests(first: 40, orderBy: {field: CREATED_AT, direction: DESC}) {
+      pullRequests(first: 100, orderBy: {field: CREATED_AT, direction: DESC}) {
         nodes {
           ...PullRequestFields
         }

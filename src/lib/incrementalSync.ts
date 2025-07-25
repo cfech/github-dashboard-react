@@ -1,4 +1,4 @@
-import { fetchUserInfo, fetchRepositories, fetchOrganizationRepositories, fetchRepositoryCommits, fetchRepositoryPRs } from './githubApi';
+import { fetchUserInfo, fetchRepositories, fetchOrganizationRepositories, fetchRepositoryCommits, fetchRepositoryPRs, startApiTracking, logApiSummary, generateApiReport } from './githubApi';
 import { getCachedData, setCachedData, mergeCachedData, getCacheMetadata } from './fileCache';
 import { CONFIG } from './constants';
 import { GitHubRepository, GitHubCommit, GitHubPR } from '@/types/github';
@@ -170,6 +170,9 @@ export async function performIncrementalSync(): Promise<SyncResult> {
 export async function performFullSync(): Promise<SyncResult> {
   console.log('🔄 Starting full sync...');
   console.time('Full Sync');
+  
+  // Start API tracking
+  startApiTracking();
 
   try {
     // 1. Fetch user info
@@ -260,6 +263,13 @@ export async function performFullSync(): Promise<SyncResult> {
     console.log(`✅ Full sync completed: ${allCommits.length} commits, ${allPRs.length} PRs`);
     console.timeEnd('Bulk Data Query');
 
+    // Log API call summary and generate report
+    logApiSummary();
+    const reportFile = await generateApiReport();
+    if (reportFile) {
+      console.log(`📄 Detailed API report saved: ${reportFile}`);
+    }
+
     // 6. Save all data to cache (full sync)
     setCachedData({
       commits: allCommits.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
@@ -284,6 +294,14 @@ export async function performFullSync(): Promise<SyncResult> {
   } catch (error) {
     console.error('❌ Full sync failed:', error);
     console.timeEnd('Full Sync');
+    
+    // Still generate report even if sync failed
+    logApiSummary();
+    const reportFile = await generateApiReport();
+    if (reportFile) {
+      console.log(`📄 API report saved despite sync failure: ${reportFile}`);
+    }
+    
     throw error;
   }
 }

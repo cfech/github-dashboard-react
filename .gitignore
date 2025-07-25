@@ -4,7 +4,9 @@
 node_modules
 .next
 .claude
-react-instructions.txt
 
 # GitHub Dashboard Cache
 .github-dashboard-cache/
+
+# API Reports
+api-reports/
