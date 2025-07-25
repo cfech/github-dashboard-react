@@ -66,4 +66,12 @@ export const INFO_MESSAGES = {
   "refresh_data": "Refresh Live Data"
 };
 
-export const GITHUB_API_URL = 'https://api.github.com/graphql';
+// GitHub configuration with environment variable support
+export const GITHUB_CONFIG = {
+  API_URL: process.env.GITHUB_API_URL || 'https://api.github.com/graphql',
+  BASE_URL: process.env.GITHUB_BASE_URL || 'https://github.com',
+  RAW_URL: process.env.GITHUB_RAW_URL || 'https://raw.githubusercontent.com'
+};
+
+// Legacy export for backward compatibility
+export const GITHUB_API_URL = GITHUB_CONFIG.API_URL;

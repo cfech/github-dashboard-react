@@ -138,17 +138,39 @@ export default function GlobalSearch({ commits, pullRequests, onSearchChange }: 
       }
     }
 
-    // Optimized sorting: sort only the results we found
+    // Enhanced sorting: combines relevance score with date weighting
     results.sort((a, b) => {
-      // Primary sort: relevance score
-      if (a.relevanceScore !== b.relevanceScore) {
-        return b.relevanceScore - a.relevanceScore;
-      }
-      
-      // Secondary sort: date (more recent first)
+      // Get dates for both items
       const aDate = a.type === 'commit' ? (a.data as GitHubCommit).date : (a.data as GitHubPR).created_at;
       const bDate = b.type === 'commit' ? (b.data as GitHubCommit).date : (b.data as GitHubPR).created_at;
-      return new Date(bDate).getTime() - new Date(aDate).getTime();
+      const aTime = new Date(aDate).getTime();
+      const bTime = new Date(bDate).getTime();
+      
+      // Calculate recency bonus (more recent items get higher scores)
+      const now = Date.now();
+      const oneDay = 24 * 60 * 60 * 1000;
+      const oneWeek = 7 * oneDay;
+      
+      const getRecencyBonus = (timestamp: number) => {
+        const age = now - timestamp;
+        if (age < oneDay) return 10; // Today: +10 points
+        if (age < 3 * oneDay) return 7; // Last 3 days: +7 points
+        if (age < oneWeek) return 5; // This week: +5 points
+        if (age < 4 * oneWeek) return 3; // This month: +3 points
+        return 0; // Older: no bonus
+      };
+      
+      // Combined score: relevance + recency bonus
+      const aCombinedScore = a.relevanceScore + getRecencyBonus(aTime);
+      const bCombinedScore = b.relevanceScore + getRecencyBonus(bTime);
+      
+      // Primary sort: combined score (relevance + recency)
+      if (aCombinedScore !== bCombinedScore) {
+        return bCombinedScore - aCombinedScore;
+      }
+      
+      // Secondary sort: raw date (more recent first) for final tiebreaker
+      return bTime - aTime;
     });
 
     if (process.env.NODE_ENV === 'development') {
