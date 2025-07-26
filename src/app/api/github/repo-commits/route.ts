@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     console.log(`🔍 Fetching commits for repository: ${repoName}`);
     
     // Create a minimal repository object for the API call
-    const [owner, name] = repoName.split('/');
+    const [, name] = repoName.split('/');
     const repo: GitHubRepository = {
       name,
       nameWithOwner: repoName,

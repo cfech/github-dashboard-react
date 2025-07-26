@@ -1,4 +1,4 @@
-import { GitHubData, GitHubUser } from '@/types/github';
+import { GitHubData } from '@/types/github';
 
 // Fetch GitHub data (uses cache if valid, otherwise performs incremental sync)
 export async function fetchGitHubData(): Promise<GitHubData> {
@@ -31,17 +31,6 @@ export async function fullSyncGitHubData(): Promise<GitHubData> {
   if (!response.ok) {
     const errorData = await response.json();
     throw new Error(errorData.error || 'Failed to perform full sync');
-  }
-  
-  return response.json();
-}
-
-export async function fetchGitHubUser(): Promise<GitHubUser> {
-  const response = await fetch('/api/github/user');
-  
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.error || 'Failed to fetch user data');
   }
   
   return response.json();

@@ -65,43 +65,10 @@ export type FetchStrategy =
   | 'HYBRID_THRESHOLD'      // Mixed - use Compare API for small, GraphQL for large
   | 'ADAPTIVE_BATCH';       // Complex patterns - adaptive per branch
 
-export interface StrategyMetrics {
-  strategy: FetchStrategy;
-  totalApiCalls: number;
-  totalDataTransferred: number; // Estimated in commit count
-  duplicateDataPercentage: number;
-  executionTimeMs: number;
-  successRate: number;
-  branchesSkipped?: number; // Number of merged/inactive branches skipped
-  branchesProcessed?: number; // Number of active branches processed
-  optimizationEfficiency?: number; // Percentage of branches skipped
-}
-
 export interface ProfileCache {
   repositoryId: string;
   profile: RepositoryProfile;
-  strategyMetrics: StrategyMetrics[];
+  strategyMetrics: any[];
   fetchCount: number;
   lastUpdated: string;
-}
-
-// Incremental sync metadata for branch-level tracking
-export interface BranchState {
-  lastCommitSha: string;
-  lastCommitDate: string;
-  lastFetched: string;
-  commitCount?: number;
-}
-
-export interface RepositoryState {
-  lastFetched: string;
-  branchStates: Record<string, BranchState>;
-  lastPRSync: string;
-  profileVersion: string;
-}
-
-export interface IncrementalSyncMetadata {
-  version: string;
-  lastSync: string;
-  repositoryStates: Record<string, RepositoryState>;
 }
