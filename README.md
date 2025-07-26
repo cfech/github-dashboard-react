@@ -82,6 +82,10 @@ GITHUB_RAW_URL=https://raw.githubusercontent.com
 REPO_FETCH_LIMIT=25
 LOOK_BACK_DAYS=5
 
+# Commit Fetching Configuration
+FETCH_ALL_COMMITS=true
+EXCLUDE_BRANCH_PREFIXES=ex1,ex2,ex3
+
 # Client-side safe
 NEXT_PUBLIC_DEBUG_MODE=true
 NEXT_PUBLIC_APP_NAME="GitHub Dashboard"
@@ -172,6 +176,11 @@ GITHUB_TOKEN=<your_github_token>              # GitHub API authentication
 TARGET_ORGANIZATIONS=<comma_separated_orgs>   # Organizations to fetch
 REPO_FETCH_LIMIT=25                          # Max repositories per org
 LOOK_BACK_DAYS=5                            # Days of activity to show
+
+# Commit Fetching Configuration
+FETCH_ALL_COMMITS=true                       # true=all commits, false=first 100 per branch
+EXCLUDE_BRANCH_PREFIXES=<comma_separated>    # Filter branches starting with these prefixes
+
 NODE_ENV=development                         # Environment mode
 ```
 
@@ -247,6 +256,45 @@ npm run type-check
 - Enable debug mode to use mock data
 - Reduce `REPO_FETCH_LIMIT` in `.env.local`
 - Decrease `LOOK_BACK_DAYS` for less data processing
+- Set `FETCH_ALL_COMMITS=false` for faster syncs (limits to 100 commits per branch)
+- Use `EXCLUDE_BRANCH_PREFIXES` to filter out temporary/generated branches
+
+### Advanced Configuration
+
+#### Commit Fetching Control
+Control how many commits are fetched per branch:
+
+```bash
+# Fetch ALL commits from ALL branches (comprehensive but slower)
+FETCH_ALL_COMMITS=true
+
+# Fetch only first 100 commits per branch (faster, good for most use cases)
+FETCH_ALL_COMMITS=false
+```
+
+**Performance Impact**:
+- `true`: Complete history, may take longer for repositories with many commits
+- `false`: Recent commits only, significantly faster API calls
+
+#### Branch Filtering
+Exclude branches that start with specific prefixes:
+
+```bash
+# Filter out branches starting with these prefixes
+EXCLUDE_BRANCH_PREFIXES=codegenie,temp,test,feature/temp
+
+# Examples of branches that would be filtered:
+# - codegenie-feature-123
+# - temp-branch
+# - test-implementation
+# - feature/temp-fix
+```
+
+**Use Cases**:
+- Exclude auto-generated branches (e.g., from AI tools)
+- Filter out temporary/experimental branches
+- Skip test/staging branches
+- Reduce noise from development workflows
 
 ### Development Tips
 

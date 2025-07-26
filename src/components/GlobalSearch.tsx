@@ -259,8 +259,8 @@ export default function GlobalSearch({ commits, pullRequests, onSearchChange }: 
         const regex = new RegExp(`(${escapedTerm})`, 'gi');
         
         if (typeof result === 'string') {
-          const parts = result.split(regex);
-          result = parts.map((part, index) =>
+          const parts: string[] = result.split(regex);
+          result = parts.map((part: string, index: number) =>
             regex.test(part) ? (
               <mark key={`${singleTerm}-${index}`} style={{ backgroundColor: '#ffeb3b', padding: '1px 2px', borderRadius: '2px' }}>
                 {part}

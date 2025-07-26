@@ -1,4 +1,4 @@
-import { fetchUserInfo, fetchRepositories, fetchOrganizationRepositories, fetchRepositoryCommits, fetchRepositoryPRs, startApiTracking, logApiSummary, generateApiReport } from './githubApi';
+import { fetchUserInfo, fetchRepositories, fetchOrganizationRepositories, fetchRepositoryCommits, fetchRepositoryCommitsSince, fetchRepositoryPRs, fetchRepositoryPRsSince, startApiTracking, logApiSummary, generateApiReport } from './githubApi';
 import { getCachedData, setCachedData, mergeCachedData, getCacheMetadata } from './fileCache';
 import { CONFIG } from './constants';
 import { GitHubRepository, GitHubCommit, GitHubPR } from '@/types/github';
@@ -19,12 +19,8 @@ async function fetchIncrementalCommits(repo: GitHubRepository, since: string): P
   try {
     console.log(`🔄 Fetching incremental commits for ${repo.nameWithOwner} since ${since}`);
     
-    // For simplicity, we'll fetch all commits and filter by date
-    // In a production app, you'd want to use GitHub's 'since' parameter in the GraphQL query
-    const allCommits = await fetchRepositoryCommits(repo);
-    
-    const sinceDate = new Date(since);
-    const newCommits = allCommits.filter(commit => new Date(commit.date) > sinceDate);
+    // Use efficient GitHub API 'since' parameter to only fetch new commits
+    const newCommits = await fetchRepositoryCommitsSince(repo, since);
     
     console.log(`📝 Found ${newCommits.length} new commits for ${repo.nameWithOwner}`);
     return newCommits;
@@ -39,32 +35,11 @@ async function fetchIncrementalPRs(repo: GitHubRepository, since: string, cached
   try {
     console.log(`🔄 Fetching incremental PRs for ${repo.nameWithOwner} since ${since}`);
     
-    // Get all current PRs from repository
-    const allPRs = await fetchRepositoryPRs(repo);
+    // Use efficient GitHub API to only fetch PRs created or updated since last sync
+    const updatedPRs = await fetchRepositoryPRsSince(repo, since);
     
-    const sinceDate = new Date(since);
-    
-    // Find truly new PRs (created since last sync)
-    const newPRs = allPRs.filter(pr => new Date(pr.created_at) > sinceDate);
-    
-    // Find existing open PRs that might have changed status
-    const existingOpenPRs = cachedPRs.filter(cachedPR => 
-      cachedPR.repo === repo.nameWithOwner && cachedPR.state === 'Open'
-    );
-    
-    // Check for status changes in existing open PRs
-    const updatedPRs: GitHubPR[] = [];
-    for (const cachedPR of existingOpenPRs) {
-      const currentPR = allPRs.find(pr => pr.number === cachedPR.number);
-      if (currentPR && currentPR.state !== cachedPR.state) {
-        console.log(`📝 PR #${currentPR.number} status changed: ${cachedPR.state} → ${currentPR.state}`);
-        updatedPRs.push(currentPR);
-      }
-    }
-    
-    const totalUpdates = [...newPRs, ...updatedPRs];
-    console.log(`🔀 Found ${newPRs.length} new PRs and ${updatedPRs.length} status updates for ${repo.nameWithOwner}`);
-    return totalUpdates;
+    console.log(`🔀 Found ${updatedPRs.length} updated PRs for ${repo.nameWithOwner}`);
+    return updatedPRs;
   } catch (error) {
     console.error(`❌ Error fetching incremental PRs for ${repo.nameWithOwner}:`, error);
     return [];
@@ -88,22 +63,70 @@ export async function performIncrementalSync(): Promise<SyncResult> {
   console.log(`📅 Fetching data since: ${since}`);
 
   try {
-    // Use cached repositories for incremental sync
-    const repositories = cachedData.repositories;
-    console.log(`📦 Using ${repositories.length} cached repositories`);
+    // Fetch fresh repository metadata to get current pushedAt values
+    console.log(`🔄 Refreshing repository metadata for accurate incremental sync...`);
+    console.time('Repository Metadata Refresh');
+    
+    const targetOrgs = process.env.TARGET_ORGANIZATIONS?.split(',').map(org => org.trim()) || [];
+    const allRepositories: GitHubRepository[] = [];
 
-    // Filter repositories to only those that might have new activity
-    // Check repositories that were active within the lookback period
-    const cutoffDate = new Date(Date.now() - CONFIG.LOOK_BACK_DAYS * 24 * 60 * 60 * 1000);
-    const activeRepos = repositories.filter(repo => {
+    // Fetch fresh user repositories
+    const userRepos = await fetchRepositories();
+    allRepositories.push(...userRepos);
+
+    // Fetch fresh organization repositories  
+    for (const orgName of targetOrgs) {
+      try {
+        const orgRepos = await fetchOrganizationRepositories(orgName);
+        allRepositories.push(...orgRepos);
+      } catch (error) {
+        console.warn(`Failed to fetch repositories for org: ${orgName}`, error);
+      }
+    }
+
+    console.log(`📦 Repository metadata refreshed: ${allRepositories.length} repos found`);
+    console.timeEnd('Repository Metadata Refresh');
+
+    // Filter repositories to only those that have been pushed since last sync (using FRESH data)
+    const lastSyncDate = new Date(since);
+    const updatedRepos = allRepositories.filter(repo => {
       const pushedAt = new Date(repo.pushedAt);
-      return pushedAt >= cutoffDate;
+      const wasUpdated = pushedAt > lastSyncDate;
+      
+      if (wasUpdated) {
+        console.log(`📤 Repository ${repo.nameWithOwner} was pushed at ${pushedAt.toISOString()} (after last sync)`);
+      }
+      
+      return wasUpdated;
     });
 
-    console.log(`🎯 Checking ${activeRepos.length} potentially active repositories`);
+    console.log(`🎯 Found ${updatedRepos.length} repositories updated since last sync (${allRepositories.length} total repositories)`);
+    
+    if (updatedRepos.length === 0) {
+      console.log(`✨ No repositories updated since last sync - returning cached data with refreshed repository metadata`);
+      
+      // Still update cached repository data with fresh metadata
+      setCachedData({
+        commits: cachedData.commits,
+        pull_requests: cachedData.pull_requests,
+        repositories: allRepositories, // Use fresh repository metadata
+        user_info: cachedData.user_info
+      }, false);
+      
+      return {
+        commits: cachedData.commits,
+        pull_requests: cachedData.pull_requests,
+        repositories: allRepositories, // Return fresh repository metadata
+        user_info: cachedData.user_info,
+        isIncremental: true,
+        newCommitsCount: 0,
+        newPRsCount: 0,
+        syncTimestamp: new Date().toISOString()
+      };
+    }
 
-    // Fetch incremental data for active repositories
-    const incrementalPromises = activeRepos.map(async (repo) => {
+    // Fetch incremental data for updated repositories
+    const incrementalPromises = updatedRepos.map(async (repo) => {
       const [commits, prs] = await Promise.all([
         fetchIncrementalCommits(repo, since),
         fetchIncrementalPRs(repo, since, cachedData.pull_requests)
@@ -125,13 +148,13 @@ export async function performIncrementalSync(): Promise<SyncResult> {
     console.log(`✅ Incremental sync found: ${newCommits.length} new commits, ${newPRs.length} new PRs`);
 
     // Merge with existing cached data
-    const mergedData = mergeCachedData(newCommits, newPRs, []);
+    const mergedData = mergeCachedData(newCommits, newPRs, allRepositories);
     
     // Save merged data to cache (incremental sync)
     setCachedData({
       commits: mergedData.commits,
       pull_requests: mergedData.pull_requests,
-      repositories: mergedData.repositories,
+      repositories: allRepositories, // Use fresh repository metadata
       user_info: cachedData.user_info
     }, false);
 
@@ -140,7 +163,7 @@ export async function performIncrementalSync(): Promise<SyncResult> {
     return {
       commits: mergedData.commits,
       pull_requests: mergedData.pull_requests,
-      repositories: mergedData.repositories,
+      repositories: allRepositories, // Return fresh repository metadata
       user_info: cachedData.user_info,
       isIncremental: true,
       newCommitsCount: newCommits.length,

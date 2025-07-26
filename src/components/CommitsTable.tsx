@@ -347,7 +347,7 @@ export default function CommitsTable({ commits, repositories = [], searchTerm = 
                   <Box>
                     <Typography variant="body2">{option.label}</Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {option.fullName || option.value}
+                      {option.value}
                     </Typography>
                   </Box>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
