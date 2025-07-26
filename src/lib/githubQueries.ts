@@ -137,10 +137,65 @@ export const GET_REPOSITORY_ALL_BRANCHES_COMMITS_QUERY = `
           name
           target {
             ... on Commit {
-              history(first:100) {
+              history(first: 100) {
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
                 nodes {
                   ...CommitFields
                 }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  ${COMMIT_FIELDS_FRAGMENT}
+`;
+
+// Query to fetch commits since a specific date (for incremental sync)
+export const GET_REPOSITORY_COMMITS_SINCE_QUERY = `
+  query GetRepositoryCommitsSince($owner: String!, $name: String!, $since: GitTimestamp!) {
+    repository(owner: $owner, name: $name) {
+      refs(refPrefix: "refs/heads/", first: 20) {
+        nodes {
+          name
+          target {
+            ... on Commit {
+              history(first: 100, since: $since) {
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
+                nodes {
+                  ...CommitFields
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  ${COMMIT_FIELDS_FRAGMENT}
+`;
+
+// Query to fetch additional commits from a specific branch when there are more than 100
+export const GET_MORE_BRANCH_COMMITS_QUERY = `
+  query GetMoreBranchCommits($owner: String!, $name: String!, $branch: String!, $cursor: String!) {
+    repository(owner: $owner, name: $name) {
+      ref(qualifiedName: $branch) {
+        target {
+          ... on Commit {
+            history(first: 100, after: $cursor) {
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
+              nodes {
+                ...CommitFields
               }
             }
           }
@@ -157,6 +212,21 @@ export const GET_REPOSITORY_PRS_QUERY = `
       pullRequests(first: 100, orderBy: {field: CREATED_AT, direction: DESC}) {
         nodes {
           ...PullRequestFields
+        }
+      }
+    }
+  }
+  ${PULL_REQUEST_FIELDS_FRAGMENT}
+`;
+
+// Query to fetch PRs updated since a specific date (for incremental sync)
+export const GET_REPOSITORY_PRS_SINCE_QUERY = `
+  query GetRepositoryPRsSince($owner: String!, $name: String!, $since: DateTime!) {
+    repository(owner: $owner, name: $name) {
+      pullRequests(first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
+        nodes {
+          ...PullRequestFields
+          updatedAt
         }
       }
     }

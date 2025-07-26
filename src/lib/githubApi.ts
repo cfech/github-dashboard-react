@@ -7,7 +7,10 @@ import {
   GET_ORGANIZATION_REPOS_QUERY,
   GET_REPOSITORY_COMMITS_QUERY,
   GET_REPOSITORY_ALL_BRANCHES_COMMITS_QUERY,
-  GET_REPOSITORY_PRS_QUERY
+  GET_REPOSITORY_COMMITS_SINCE_QUERY,
+  GET_MORE_BRANCH_COMMITS_QUERY,
+  GET_REPOSITORY_PRS_QUERY,
+  GET_REPOSITORY_PRS_SINCE_QUERY
 } from './githubQueries';
 import { GitHubUser, GitHubRepository, GitHubCommit, GitHubPR } from '@/types/github';
 
@@ -82,11 +85,15 @@ class ApiCallTracker {
     const stats = this.getStats();
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
     const filename = `api-report-${timestamp}.txt`;
-    const reportPath = path.join(process.cwd(), 'api-reports', filename);
+    const reportsDir = path.join(process.cwd(), 'api-reports');
+    const reportPath = path.join(reportsDir, filename);
 
     const report = this.formatReport(stats);
     
     try {
+      // Ensure the api-reports directory exists
+      await fs.promises.mkdir(reportsDir, { recursive: true });
+      
       await fs.promises.writeFile(reportPath, report, 'utf8');
       console.log(`📊 API Report generated: api-reports/${filename}`);
       return filename;
@@ -310,21 +317,47 @@ export async function fetchRepositoryCommits(repo: GitHubRepository): Promise<Gi
   const [owner, name] = repo.nameWithOwner.split('/');
   
   try {
+    // Parse environment variables
+    const fetchAllCommits = process.env.FETCH_ALL_COMMITS !== 'false'; // Default to true
+    const excludePrefixes = process.env.EXCLUDE_BRANCH_PREFIXES 
+      ? process.env.EXCLUDE_BRANCH_PREFIXES.split(',').map(prefix => prefix.trim()).filter(Boolean)
+      : [];
+    
     console.log(`🔍 Fetching commits from all branches for ${repo.nameWithOwner}`);
+    console.log(`⚙️  Config: fetchAll=${fetchAllCommits}, excludePrefixes=[${excludePrefixes.join(', ')}]`);
+    
     const data = await executeGraphQLQuery(GET_REPOSITORY_ALL_BRANCHES_COMMITS_QUERY, {
       owner,
       name
     }, 'AllBranchesCommits', repo.nameWithOwner);
     
-    const branches = data.repository?.refs?.nodes || [];
-    console.log(`📝 Found ${branches.length} branches in ${repo.nameWithOwner}`);
+    const allBranches = data.repository?.refs?.nodes || [];
+    
+    // Filter out branches based on exclude prefixes
+    const filteredBranches = allBranches.filter(branch => {
+      const branchName = branch.name;
+      const shouldExclude = excludePrefixes.some(prefix => 
+        branchName.toLowerCase().startsWith(prefix.toLowerCase())
+      );
+      
+      if (shouldExclude) {
+        console.log(`🚫 Excluding branch '${branchName}' (matches prefix filter)`);
+      }
+      
+      return !shouldExclude;
+    });
+    
+    console.log(`📝 Found ${allBranches.length} branches (${filteredBranches.length} after filtering) in ${repo.nameWithOwner}`);
     
     const allCommits: GitHubCommit[] = [];
     
-    for (const branch of branches) {
+    for (const branch of filteredBranches) {
       const commits = branch.target?.history?.nodes || [];
-      console.log(`📂 Branch '${branch.name}': ${commits.length} commits`);
+      const pageInfo = branch.target?.history?.pageInfo;
       
+      console.log(`📂 Branch '${branch.name}': ${commits.length} commits${pageInfo?.hasNextPage ? ' (has more)' : ''}`);
+      
+      // Add initial batch of commits
       const branchCommits = commits.map((commit: any) => ({
         repo: repo.nameWithOwner,
         repo_url: repo.url,
@@ -338,6 +371,16 @@ export async function fetchRepositoryCommits(repo: GitHubRepository): Promise<Gi
       }));
       
       allCommits.push(...branchCommits);
+      
+      // Only fetch additional commits if FETCH_ALL_COMMITS is true
+      if (fetchAllCommits && pageInfo?.hasNextPage) {
+        console.log(`📝 Fetching additional commits for branch '${branch.name}'...`);
+        const additionalCommits = await fetchAdditionalBranchCommits(owner, name, branch.name, pageInfo.endCursor, repo);
+        allCommits.push(...additionalCommits);
+        console.log(`✅ Branch '${branch.name}': ${commits.length + additionalCommits.length} total commits`);
+      } else if (!fetchAllCommits && pageInfo?.hasNextPage) {
+        console.log(`⏭️  Skipping additional commits for branch '${branch.name}' (FETCH_ALL_COMMITS=false)`);
+      }
     }
     
     // Sort all commits by date (most recent first) and remove duplicates by SHA
@@ -377,6 +420,199 @@ export async function fetchRepositoryPRs(repo: GitHubRepository): Promise<GitHub
     console.error(`Error fetching PRs for ${repo.nameWithOwner}:`, error);
     return [];
   }
+}
+
+// Incremental commit fetching - only gets commits since a specific date
+export async function fetchRepositoryCommitsSince(repo: GitHubRepository, since: string): Promise<GitHubCommit[]> {
+  const [owner, name] = repo.nameWithOwner.split('/');
+  
+  try {
+    // Parse environment variables
+    const fetchAllCommits = process.env.FETCH_ALL_COMMITS !== 'false'; // Default to true
+    const excludePrefixes = process.env.EXCLUDE_BRANCH_PREFIXES 
+      ? process.env.EXCLUDE_BRANCH_PREFIXES.split(',').map(prefix => prefix.trim()).filter(Boolean)
+      : [];
+    
+    console.log(`🔄 Fetching incremental commits for ${repo.nameWithOwner} since ${since}`);
+    console.log(`⚙️  Config: fetchAll=${fetchAllCommits}, excludePrefixes=[${excludePrefixes.join(', ')}]`);
+    
+    const data = await executeGraphQLQuery(GET_REPOSITORY_COMMITS_SINCE_QUERY, {
+      owner,
+      name,
+      since
+    }, 'IncrementalCommits', repo.nameWithOwner);
+    
+    const allBranches = data.repository?.refs?.nodes || [];
+    
+    // Filter out branches based on exclude prefixes
+    const filteredBranches = allBranches.filter(branch => {
+      const branchName = branch.name;
+      const shouldExclude = excludePrefixes.some(prefix => 
+        branchName.toLowerCase().startsWith(prefix.toLowerCase())
+      );
+      
+      if (shouldExclude) {
+        console.log(`🚫 Excluding branch '${branchName}' (matches prefix filter)`);
+      }
+      
+      return !shouldExclude;
+    });
+    
+    console.log(`📝 Found ${allBranches.length} branches (${filteredBranches.length} after filtering) in ${repo.nameWithOwner}`);
+    
+    const allCommits: GitHubCommit[] = [];
+    let totalNewCommits = 0;
+    
+    for (const branch of filteredBranches) {
+      const commits = branch.target?.history?.nodes || [];
+      const pageInfo = branch.target?.history?.pageInfo;
+      
+      if (commits.length > 0) {
+        console.log(`📂 Branch '${branch.name}': ${commits.length} new commits${pageInfo?.hasNextPage ? ' (has more)' : ''}`);
+        totalNewCommits += commits.length;
+        
+        // Add initial batch of commits
+        const branchCommits = commits.map((commit: any) => ({
+          repo: repo.nameWithOwner,
+          repo_url: repo.url,
+          branch_name: branch.name,
+          branch_url: `${repo.url}/tree/${branch.name}`,
+          sha: commit.oid.substring(0, 7),
+          message: commit.message || "No message",
+          author: commit.author?.name || commit.author?.user?.login || "Unknown",
+          date: commit.committedDate,
+          url: commit.url
+        }));
+        
+        allCommits.push(...branchCommits);
+        
+        // Only fetch additional commits if FETCH_ALL_COMMITS is true
+        if (fetchAllCommits && pageInfo?.hasNextPage) {
+          console.log(`📝 Fetching additional incremental commits for branch '${branch.name}'...`);
+          const additionalCommits = await fetchAdditionalBranchCommits(owner, name, branch.name, pageInfo.endCursor, repo);
+          allCommits.push(...additionalCommits);
+          console.log(`✅ Branch '${branch.name}': ${commits.length + additionalCommits.length} total new commits`);
+        } else if (!fetchAllCommits && pageInfo?.hasNextPage) {
+          console.log(`⏭️  Skipping additional commits for branch '${branch.name}' (FETCH_ALL_COMMITS=false)`);
+        }
+      }
+    }
+    
+    // Sort all commits by date (most recent first) and remove duplicates by SHA
+    const uniqueCommits = allCommits
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .filter((commit, index, arr) => 
+        index === arr.findIndex(c => c.sha === commit.sha)
+      );
+    
+    console.log(`🎉 Incremental sync complete: ${uniqueCommits.length} new commits from ${repo.nameWithOwner}`);
+    return uniqueCommits;
+  } catch (error) {
+    console.error(`❌ Error fetching incremental commits for ${repo.nameWithOwner}:`, error);
+    return [];
+  }
+}
+
+// Incremental PR fetching - only gets PRs updated since a specific date
+export async function fetchRepositoryPRsSince(repo: GitHubRepository, since: string): Promise<GitHubPR[]> {
+  const [owner, name] = repo.nameWithOwner.split('/');
+  
+  try {
+    console.log(`🔄 Fetching incremental PRs for ${repo.nameWithOwner} since ${since}`);
+    
+    // First, get all PRs ordered by updated date to find recently updated ones
+    const data = await executeGraphQLQuery(GET_REPOSITORY_PRS_SINCE_QUERY, {
+      owner,
+      name,
+      since
+    }, 'IncrementalPRs', repo.nameWithOwner);
+    
+    const allPRs = data.repository?.pullRequests?.nodes || [];
+    const sinceDate = new Date(since);
+    
+    // Filter PRs that were created OR updated since the last sync
+    const updatedPRs = allPRs.filter(pr => {
+      const createdAt = new Date(pr.createdAt);
+      const updatedAt = new Date(pr.updatedAt || pr.createdAt);
+      
+      // Include PRs that were created since last sync OR updated since last sync
+      return createdAt > sinceDate || updatedAt > sinceDate;
+    });
+    
+    console.log(`📝 Found ${updatedPRs.length} updated PRs (${allPRs.length} total checked) for ${repo.nameWithOwner}`);
+    
+    const mappedPRs = updatedPRs.map((pr: any) => ({
+      repo: repo.nameWithOwner,
+      repo_url: repo.url,
+      number: pr.number,
+      title: pr.title,
+      state: (pr.state.charAt(0).toUpperCase() + pr.state.slice(1).toLowerCase()) as "Open" | "Merged" | "Closed",
+      author: pr.author?.login || "Unknown",
+      created_at: pr.createdAt,
+      merged_at: pr.mergedAt,
+      url: pr.url
+    }));
+    
+    return mappedPRs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  } catch (error) {
+    console.error(`❌ Error fetching incremental PRs for ${repo.nameWithOwner}:`, error);
+    return [];
+  }
+}
+
+// Helper function to fetch additional commits for branches with more than 100 commits
+async function fetchAdditionalBranchCommits(
+  owner: string, 
+  name: string, 
+  branchName: string, 
+  cursor: string, 
+  repo: GitHubRepository
+): Promise<GitHubCommit[]> {
+  const allAdditionalCommits: GitHubCommit[] = [];
+  let currentCursor: string | null = cursor;
+  let pageCount = 0;
+  
+  while (currentCursor) {
+    pageCount++;
+    console.log(`📄 Fetching page ${pageCount} for branch '${branchName}'...`);
+    
+    const data = await executeGraphQLQuery(GET_MORE_BRANCH_COMMITS_QUERY, {
+      owner,
+      name,
+      branch: `refs/heads/${branchName}`,
+      cursor: currentCursor
+    }, 'AdditionalBranchCommits', repo.nameWithOwner, branchName);
+    
+    const commits = data.repository?.ref?.target?.history?.nodes || [];
+    const pageInfo = data.repository?.ref?.target?.history?.pageInfo;
+    
+    console.log(`  📝 Got ${commits.length} additional commits (page ${pageCount})`);
+    
+    const branchCommits = commits.map((commit: any) => ({
+      repo: repo.nameWithOwner,
+      repo_url: repo.url,
+      branch_name: branchName,
+      branch_url: `${repo.url}/tree/${branchName}`,
+      sha: commit.oid.substring(0, 7),
+      message: commit.message || "No message",
+      author: commit.author?.name || commit.author?.user?.login || "Unknown",
+      date: commit.committedDate,
+      url: commit.url
+    }));
+    
+    allAdditionalCommits.push(...branchCommits);
+    
+    // Check if there are more commits to fetch
+    currentCursor = pageInfo?.hasNextPage ? pageInfo.endCursor : null;
+    
+    // Small delay between pages to be respectful of API limits
+    if (currentCursor) {
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+  }
+  
+  console.log(`📊 Branch '${branchName}': fetched ${allAdditionalCommits.length} additional commits across ${pageCount} pages`);
+  return allAdditionalCommits;
 }
 
 // Export API tracking functions
