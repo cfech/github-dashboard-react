@@ -63,13 +63,33 @@ export async function performIncrementalSync(): Promise<SyncResult> {
   console.log(`📅 Fetching data since: ${since}`);
 
   try {
-    // Use cached repositories for incremental sync
-    const repositories = cachedData.repositories;
-    console.log(`📦 Using ${repositories.length} cached repositories`);
+    // Fetch fresh repository metadata to get current pushedAt values
+    console.log(`🔄 Refreshing repository metadata for accurate incremental sync...`);
+    console.time('Repository Metadata Refresh');
+    
+    const targetOrgs = process.env.TARGET_ORGANIZATIONS?.split(',').map(org => org.trim()) || [];
+    const allRepositories: GitHubRepository[] = [];
 
-    // Filter repositories to only those that have been pushed since last sync
+    // Fetch fresh user repositories
+    const userRepos = await fetchRepositories();
+    allRepositories.push(...userRepos);
+
+    // Fetch fresh organization repositories  
+    for (const orgName of targetOrgs) {
+      try {
+        const orgRepos = await fetchOrganizationRepositories(orgName);
+        allRepositories.push(...orgRepos);
+      } catch (error) {
+        console.warn(`Failed to fetch repositories for org: ${orgName}`, error);
+      }
+    }
+
+    console.log(`📦 Repository metadata refreshed: ${allRepositories.length} repos found`);
+    console.timeEnd('Repository Metadata Refresh');
+
+    // Filter repositories to only those that have been pushed since last sync (using FRESH data)
     const lastSyncDate = new Date(since);
-    const updatedRepos = repositories.filter(repo => {
+    const updatedRepos = allRepositories.filter(repo => {
       const pushedAt = new Date(repo.pushedAt);
       const wasUpdated = pushedAt > lastSyncDate;
       
@@ -80,14 +100,23 @@ export async function performIncrementalSync(): Promise<SyncResult> {
       return wasUpdated;
     });
 
-    console.log(`🎯 Found ${updatedRepos.length} repositories updated since last sync (${repositories.length} total cached)`);
+    console.log(`🎯 Found ${updatedRepos.length} repositories updated since last sync (${allRepositories.length} total repositories)`);
     
     if (updatedRepos.length === 0) {
-      console.log(`✨ No repositories updated since last sync - returning cached data`);
+      console.log(`✨ No repositories updated since last sync - returning cached data with refreshed repository metadata`);
+      
+      // Still update cached repository data with fresh metadata
+      setCachedData({
+        commits: cachedData.commits,
+        pull_requests: cachedData.pull_requests,
+        repositories: allRepositories, // Use fresh repository metadata
+        user_info: cachedData.user_info
+      }, false);
+      
       return {
         commits: cachedData.commits,
         pull_requests: cachedData.pull_requests,
-        repositories: cachedData.repositories,
+        repositories: allRepositories, // Return fresh repository metadata
         user_info: cachedData.user_info,
         isIncremental: true,
         newCommitsCount: 0,
@@ -119,13 +148,13 @@ export async function performIncrementalSync(): Promise<SyncResult> {
     console.log(`✅ Incremental sync found: ${newCommits.length} new commits, ${newPRs.length} new PRs`);
 
     // Merge with existing cached data
-    const mergedData = mergeCachedData(newCommits, newPRs, []);
+    const mergedData = mergeCachedData(newCommits, newPRs, allRepositories);
     
     // Save merged data to cache (incremental sync)
     setCachedData({
       commits: mergedData.commits,
       pull_requests: mergedData.pull_requests,
-      repositories: mergedData.repositories,
+      repositories: allRepositories, // Use fresh repository metadata
       user_info: cachedData.user_info
     }, false);
 
@@ -134,7 +163,7 @@ export async function performIncrementalSync(): Promise<SyncResult> {
     return {
       commits: mergedData.commits,
       pull_requests: mergedData.pull_requests,
-      repositories: mergedData.repositories,
+      repositories: allRepositories, // Return fresh repository metadata
       user_info: cachedData.user_info,
       isIncremental: true,
       newCommitsCount: newCommits.length,
