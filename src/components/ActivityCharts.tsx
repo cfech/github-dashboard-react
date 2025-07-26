@@ -36,6 +36,16 @@ interface ActivityChartsProps {
 }
 
 export default function ActivityCharts({ commits, pullRequests }: ActivityChartsProps) {
+  // Data integrity check to catch inconsistencies
+  const dataChecksum = useMemo(() => {
+    const commitChecksum = commits.map(c => `${c.sha}-${c.author}-${c.date}`).join('|');
+    const prChecksum = pullRequests.map(pr => `${pr.number}-${pr.author}-${pr.created_at}`).join('|');
+    return `${commitChecksum.length}-${prChecksum.length}`;
+  }, [commits, pullRequests]);
+  
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`🔍 ActivityCharts data checksum: ${dataChecksum}`);
+  }
   // Calculate the earliest data point for the notice
   const earliestDataInfo = useMemo(() => {
     const allDates: Date[] = [];
@@ -72,15 +82,33 @@ export default function ActivityCharts({ commits, pullRequests }: ActivityCharts
   }, [commits, pullRequests]);
 
   const commitChartData = useMemo(() => {
+    // Ensure we have valid commits data
+    if (!Array.isArray(commits) || commits.length === 0) {
+      return {
+        labels: [],
+        datasets: [{
+          label: 'Commits',
+          data: [],
+          backgroundColor: PROJECT_COLORS.chartBlue,
+          borderColor: PROJECT_COLORS.chartBorderCommit,
+          borderWidth: 1,
+        }],
+      };
+    }
+    
     const commitsByUser = commits.reduce((acc, commit) => {
+      // Ensure commit has required fields
+      if (!commit || !commit.author) {
+        return acc;
+      }
       const author = truncateText(commit.author, 12);
       acc[author] = (acc[author] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
 
-    // Include ALL users with more than 10 commits, sorted by count
+    // Include ALL users with more than 25 commits, sorted by count
     const sortedUsers = Object.entries(commitsByUser)
-      .filter(([, count]) => count > 10)
+      .filter(([, count]) => count > 25)
       .sort(([, a], [, b]) => b - a);
 
     return {
@@ -98,7 +126,25 @@ export default function ActivityCharts({ commits, pullRequests }: ActivityCharts
   }, [commits]);
 
   const prChartData = useMemo(() => {
+    // Ensure we have valid PRs data
+    if (!Array.isArray(pullRequests) || pullRequests.length === 0) {
+      return {
+        labels: [],
+        datasets: [{
+          label: 'Pull Requests',
+          data: [],
+          backgroundColor: PROJECT_COLORS.chartBlueAlt,
+          borderColor: PROJECT_COLORS.chartBorderPR,
+          borderWidth: 1,
+        }],
+      };
+    }
+    
     const prsByUser = pullRequests.reduce((acc, pr) => {
+      // Ensure PR has required fields
+      if (!pr || !pr.author) {
+        return acc;
+      }
       const author = truncateText(pr.author, 12);
       acc[author] = (acc[author] || 0) + 1;
       return acc;
@@ -148,8 +194,28 @@ export default function ActivityCharts({ commits, pullRequests }: ActivityCharts
   if (process.env.NODE_ENV === 'development') {
     console.group('📊 Chart Data Preparation');
     console.time('Chart Data Prep');
-    console.log(`📊 Commit Chart: ${commitChartData.labels.length} contributors with 10+ commits`);
+    console.log(`📊 Total commits: ${commits.length}`);
+    console.log(`📋 Total PRs: ${pullRequests.length}`);
+    console.log(`📊 Commit Chart: ${commitChartData.labels.length} contributors with 25+ commits`);
     console.log(`📋 PR Chart: ${prChartData.labels.length} contributors with 10+ PRs`);
+    
+    // Log the actual data for debugging
+    if (commitChartData.labels.length > 0) {
+      console.log('📊 Top commit contributors:', 
+        commitChartData.labels.slice(0, 3).map((label, i) => 
+          `${label}: ${commitChartData.datasets[0].data[i]}`
+        ).join(', ')
+      );
+    }
+    
+    if (prChartData.labels.length > 0) {
+      console.log('📋 Top PR contributors:', 
+        prChartData.labels.slice(0, 3).map((label, i) => 
+          `${label}: ${prChartData.datasets[0].data[i]}`
+        ).join(', ')
+      );
+    }
+    
     console.timeEnd('Chart Data Prep');
     console.groupEnd();
   }
@@ -180,7 +246,7 @@ export default function ActivityCharts({ commits, pullRequests }: ActivityCharts
         <Grid item xs={12}>
           <Paper sx={{ p: 3 }}>
             <Typography variant="subtitle1" gutterBottom align="center">
-              Commit Activity (Contributors with 10+ commits)
+              Commit Activity (Contributors with 25+ commits)
             </Typography>
             <Box sx={{ height: 350 }}>
               <Bar data={commitChartData} options={chartOptions} />
