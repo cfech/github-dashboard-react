@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Box,
   Paper,
   Typography,
-  Grid
+  Grid,
+  Alert
 } from '@mui/material';
 import {
   Chart as ChartJS,
@@ -20,6 +21,8 @@ import { Bar } from 'react-chartjs-2';
 import { GitHubCommit, GitHubPR } from '@/types/github';
 import { PROJECT_COLORS } from '@/lib/theme';
 import { truncateText } from '@/utils/dateUtils';
+import CommitDetailsModal from './CommitDetailsModal';
+import PRDetailsModal from './PRDetailsModal';
 
 ChartJS.register(
   CategoryScale,
@@ -36,6 +39,11 @@ interface ActivityChartsProps {
 }
 
 export default function ActivityCharts({ commits, pullRequests }: ActivityChartsProps) {
+  // Modal state
+  const [commitModalOpen, setCommitModalOpen] = useState(false);
+  const [prModalOpen, setPrModalOpen] = useState(false);
+  const [selectedContributor, setSelectedContributor] = useState<string>('');
+
   // Data integrity check to catch inconsistencies
   const dataChecksum = useMemo(() => {
     const commitChecksum = commits.map(c => `${c.sha}-${c.author}-${c.date}`).join('|');
@@ -169,9 +177,33 @@ export default function ActivityCharts({ commits, pullRequests }: ActivityCharts
     };
   }, [pullRequests]);
 
-  const chartOptions = {
+  // Click handlers for charts
+  const handleCommitChartClick = (event: any, elements: any) => {
+    if (elements.length > 0) {
+      const elementIndex = elements[0].index;
+      const contributor = commitChartData.labels[elementIndex];
+      if (contributor) {
+        setSelectedContributor(contributor);
+        setCommitModalOpen(true);
+      }
+    }
+  };
+
+  const handlePRChartClick = (event: any, elements: any) => {
+    if (elements.length > 0) {
+      const elementIndex = elements[0].index;
+      const contributor = prChartData.labels[elementIndex];
+      if (contributor) {
+        setSelectedContributor(contributor);
+        setPrModalOpen(true);
+      }
+    }
+  };
+
+  const commitChartOptions = {
     responsive: true,
     maintainAspectRatio: false,
+    onClick: handleCommitChartClick,
     plugins: {
       legend: {
         position: 'top' as const,
@@ -179,6 +211,9 @@ export default function ActivityCharts({ commits, pullRequests }: ActivityCharts
       tooltip: {
         mode: 'index' as const,
         intersect: false,
+        callbacks: {
+          afterBody: () => ['', '💡 Click bar for detailed view'],
+        },
       },
     },
     scales: {
@@ -188,6 +223,38 @@ export default function ActivityCharts({ commits, pullRequests }: ActivityCharts
           stepSize: 1,
         },
       },
+    },
+    onHover: (event: any, elements: any) => {
+      event.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+    },
+  };
+
+  const prChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    onClick: handlePRChartClick,
+    plugins: {
+      legend: {
+        position: 'top' as const,
+      },
+      tooltip: {
+        mode: 'index' as const,
+        intersect: false,
+        callbacks: {
+          afterBody: () => ['', '💡 Click bar for detailed view'],
+        },
+      },
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        ticks: {
+          stepSize: 1,
+        },
+      },
+    },
+    onHover: (event: any, elements: any) => {
+      event.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
     },
   };
 
@@ -242,6 +309,33 @@ export default function ActivityCharts({ commits, pullRequests }: ActivityCharts
         )}
       </Box>
       
+      {/* UX Helper Message */}
+      <Alert 
+        severity="info" 
+        sx={{ 
+          mb: 3, 
+          backgroundColor: '#e3f2fd',
+          border: '1px solid #2196f3',
+          borderRadius: 2,
+          '& .MuiAlert-message': { 
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center'
+          }
+        }}
+      >
+        <Typography 
+          variant="body2" 
+          sx={{ 
+            fontWeight: 500,
+            color: '#1976d2',
+            lineHeight: 1.5
+          }}
+        >
+          💡 <strong>Interactive Charts:</strong> Click on any chart bar to view detailed information for that contributor
+        </Typography>
+      </Alert>
+
       <Grid container spacing={3}>
         <Grid item xs={12}>
           <Paper sx={{ p: 3 }}>
@@ -249,7 +343,7 @@ export default function ActivityCharts({ commits, pullRequests }: ActivityCharts
               Commit Activity (Contributors with 25+ commits)
             </Typography>
             <Box sx={{ height: 350 }}>
-              <Bar data={commitChartData} options={chartOptions} />
+              <Bar data={commitChartData} options={commitChartOptions} />
             </Box>
           </Paper>
         </Grid>
@@ -260,11 +354,28 @@ export default function ActivityCharts({ commits, pullRequests }: ActivityCharts
               Pull Request Activity (Contributors with 10+ PRs)
             </Typography>
             <Box sx={{ height: 350 }}>
-              <Bar data={prChartData} options={chartOptions} />
+              <Bar data={prChartData} options={prChartOptions} />
             </Box>
           </Paper>
         </Grid>
       </Grid>
+
+      {/* Modals */}
+      <CommitDetailsModal
+        open={commitModalOpen}
+        onClose={() => setCommitModalOpen(false)}
+        commits={commits}
+        initialContributor={selectedContributor}
+        contributors={commitChartData.labels}
+      />
+
+      <PRDetailsModal
+        open={prModalOpen}
+        onClose={() => setPrModalOpen(false)}
+        pullRequests={pullRequests}
+        initialContributor={selectedContributor}
+        contributors={prChartData.labels}
+      />
     </Box>
   );
 }
