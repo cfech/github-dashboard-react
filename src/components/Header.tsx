@@ -8,11 +8,13 @@ import {
   Avatar, 
   Box, 
   IconButton,
-  Tooltip
+  Tooltip,
+  Button
 } from '@mui/material';
-import { GitHub, Settings, Brightness4, Brightness7 } from '@mui/icons-material';
+import { GitHub, Settings, Brightness4, Brightness7, Home, Analytics } from '@mui/icons-material';
 import { useTheme } from './ThemeProvider';
 import { GitHubUser } from '@/types/github';
+import { useRouter, usePathname } from 'next/navigation';
 
 interface HeaderProps {
   user?: GitHubUser;
@@ -20,14 +22,50 @@ interface HeaderProps {
 
 export default function Header({ user }: HeaderProps) {
   const { mode, toggleTheme } = useTheme();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const handleNavigation = (path: string) => {
+    router.push(path);
+  };
 
   return (
     <AppBar position="static" elevation={1}>
       <Toolbar>
         <GitHub sx={{ mr: 2 }} />
-        <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+        <Typography variant="h6" component="div" sx={{ mr: 4 }}>
           {process.env.NEXT_PUBLIC_APP_NAME || 'GitHub Dashboard'}
         </Typography>
+        
+        {/* Navigation */}
+        <Box sx={{ display: 'flex', gap: 1, flexGrow: 1 }}>
+          <Button
+            color="inherit"
+            startIcon={<Home />}
+            onClick={() => handleNavigation('/')}
+            sx={{
+              backgroundColor: pathname === '/' ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+              '&:hover': {
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+              }
+            }}
+          >
+            Dashboard
+          </Button>
+          <Button
+            color="inherit"
+            startIcon={<Analytics />}
+            onClick={() => handleNavigation('/repository-analytics')}
+            sx={{
+              backgroundColor: pathname === '/repository-analytics' ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+              '&:hover': {
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+              }
+            }}
+          >
+            Analytics
+          </Button>
+        </Box>
         
         {user && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
