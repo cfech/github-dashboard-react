@@ -9,22 +9,42 @@ A modern, real-time GitHub activity dashboard built with React, Next.js, TypeScr
 ### Core Functionality
 - **Real-time Activity Streams**: Live commit and pull request feeds with intelligent color coding
 - **Two-Column Layout**: Commit stream (left) and PR stream (right) for optimal viewing
-- **TODAY Badges**: Special highlighting for today's activity
+- **TODAY Badges**: Special highlighting for today's activity with gradient styling
 - **Timeline Emojis**: Visual indicators for activity recency (🌟 today, 🌙 yesterday, ☄️ this week, ⭐ older)
+- **Icon Indicators**: GitHub icon for commits, pull request icon for PRs across all views
+
+### Interactive Features
+- **Clickable Activity Charts**: Click chart bars to open detailed modal views
+- **Interactive Modal System**: 
+  - Detailed commit/PR modals with full search functionality
+  - Contributor switching via searchable autocomplete dropdown
+  - Lazy loading with scroll-based pagination (50 items at a time)
+  - Clickable titles, SHA hashes, and PR numbers linking to GitHub
+- **Global Search**: Unified search across all commits and PRs with:
+  - Real-time search with 300ms debouncing
+  - Search term highlighting in results
+  - Relevance scoring and recency weighting
+  - Combined results with visual type distinction
 
 ### Advanced Features
-- **Global Search**: Search across all commits and PRs by message content or author
 - **Repository Filtering**: Client-side filtering with repository dropdown
-- **Activity Charts**: Bar charts showing commit and PR activity by contributor
+- **Activity Charts**: Interactive bar charts with different thresholds:
+  - Commit activity (contributors with 25+ commits)
+  - PR activity (contributors with 10+ PRs)
+  - Hover tooltips with click instructions
 - **Activity Heatmap**: GitHub-style heatmap showing most active hours
 - **Light/Dark Mode**: Toggle between light and dark themes with localStorage persistence
-- **Debug Mode**: Mock data for development with comprehensive performance logging
+- **Debug Mode**: Comprehensive mock data for development with performance logging
 
 ### Performance & Security
+- **Intelligent Caching System**: 
+  - 15-minute cache TTL with incremental sync
+  - File-based persistent caching
+  - Smart refresh and full sync options
 - **Server-side API Integration**: All GitHub API calls are server-side only
-- **Aggressive Caching**: 5-minute TTL to respect GitHub API limits
-- **Performance Monitoring**: Comprehensive timing logs in development mode
+- **Performance Monitoring**: Comprehensive timing logs and API call tracking in development
 - **Responsive Design**: Mobile-first approach with touch-friendly controls
+- **Branch Filtering**: Configurable branch prefix exclusion for cleaner data
 
 ## 🛠 Technology Stack
 
@@ -69,35 +89,64 @@ cp .env.example .env.local
 Edit `.env.local` with your configuration:
 
 ```bash
-# Server-side only (NEVER expose to client)
+# ====================================
+# REQUIRED ENVIRONMENT VARIABLES
+# ====================================
+
+# GitHub Personal Access Token (REQUIRED)
+# Get from: https://github.com/settings/tokens
+# Required scopes: repo, read:org, read:user, read:project
 GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Target Organizations (REQUIRED)
+# Comma-separated list of GitHub organizations to fetch data from
 TARGET_ORGANIZATIONS=myorg,anotherorg
+
+# ====================================
+# OPTIONAL ENVIRONMENT VARIABLES
+# ====================================
 
 # GitHub Server Configuration (Optional - for GitHub Enterprise)
 GITHUB_API_URL=https://api.github.com/graphql
 GITHUB_BASE_URL=https://github.com
 GITHUB_RAW_URL=https://raw.githubusercontent.com
 
-# API Configuration
-REPO_FETCH_LIMIT=25
-LOOK_BACK_DAYS=5
+# API Configuration (Optional - defaults provided)
+# LOOK_BACK_DAYS=5               # Currently hardcoded to 5 days of activity history
 
-# Commit Fetching Configuration
-FETCH_ALL_COMMITS=true
-EXCLUDE_BRANCH_PREFIXES=ex1,ex2,ex3
+# Commit Fetching Configuration (Optional)
+FETCH_ALL_COMMITS=true          # true=all commits, false=first 100 per branch
+EXCLUDE_BRANCH_PREFIXES=        # Comma-separated prefixes to exclude (e.g., "temp,test,codegenie")
 
-# Client-side safe
-NEXT_PUBLIC_DEBUG_MODE=true
+# Environment (Optional)
+NODE_ENV=development
+
+# ====================================
+# CLIENT-SIDE CONFIGURATION
+# ====================================
+
+# Debug Mode (Optional - defaults to false)
+NEXT_PUBLIC_DEBUG_MODE=true     # Use mock data instead of GitHub API
+
+# Application Configuration (Optional)
 NEXT_PUBLIC_APP_NAME="GitHub Dashboard"
-NEXT_PUBLIC_CACHE_TTL=300000
+# NEXT_PUBLIC_CACHE_TTL=300000  # NOT USED - Cache TTL is hardcoded to 15 minutes
 ```
 
 ### 4. GitHub Personal Access Token Setup
 
 1. Go to [GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)](https://github.com/settings/tokens)
 2. Click "Generate new token (classic)"
-3. Select these required scopes:
+3. Give your token a descriptive name (e.g., "GitHub Dashboard")
+4. Select these **required scopes**:
    - ✅ `repo` - Full control of private repositories
+   - ✅ `read:org` - Read organization membership
+   - ✅ `read:user` - Read user profile information
+   - ✅ `read:project` - Read project boards
+5. Set an appropriate expiration date
+6. Click "Generate token"
+7. **Important**: Copy the token immediately and store it securely
+8. Add the token to your `.env.local` file
    - ✅ `read:org` - Read organization membership
    - ✅ `read:user` - Read user profile information  
    - ✅ `read:project` - Read project boards
@@ -143,53 +192,101 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 - **Commit Stream**: Shows recent commits with repository, branch, message, and author
 - **PR Stream**: Displays pull requests with status, title, and merge information
 - **Color Coding**: Purple (today), green (yesterday), orange (this week), white (older)
+- **Icon Indicators**: GitHub icon for commits, pull request icon for PRs
 
-#### 2. Global Search
-- Search across all commits and pull requests
-- Real-time results with 300ms debounce
-- Highlights matching terms in results
-- Shows combined results with visual distinction
+#### 2. Interactive Chart System
+- **Clickable Charts**: Click any chart bar to open detailed modal
+- **Smart Thresholds**: Commits (25+), PRs (10+) for cleaner visualization
+- **Hover Tooltips**: Interactive guidance with click instructions
+- **Modal Details**: Full commit/PR details with search and navigation
 
-#### 3. Repository Table
-- Sortable columns (date, repository, author)
-- Repository filtering via dropdown
-- Search integration with highlighting
-- Fixed height with scrolling
+#### 3. Advanced Modal Features
+- **Searchable Content**: Real-time search within modal results
+- **Contributor Switching**: Autocomplete dropdown for all chart contributors
+- **Lazy Loading**: Scroll-based pagination (50 items per load)
+- **Clickable Elements**: 
+  - Commit messages and SHA hashes link to GitHub
+  - PR titles and numbers link to GitHub
+  - Repository names link to GitHub repos
+- **Search State Management**: Search resets when switching contributors
 
-#### 4. Activity Visualization
-- **Bar Charts**: Commit and PR activity by top contributors
-- **Heatmap**: GitHub-style activity heatmap by day/hour
-- **Performance Optimized**: Memoized calculations
+#### 4. Global Search System
+- **Unified Search**: Search across all commits and pull requests
+- **Smart Results**: Relevance scoring with recency weighting
+- **Real-time Highlighting**: Search terms highlighted in results
+- **Visual Distinction**: Icons and styling differentiate commits vs PRs
+- **Performance Optimized**: 150ms debounce with indexed search
 
-#### 5. Theme Management
-- Light/dark mode toggle in header
-- Automatic localStorage persistence
-- Consistent color schemes across modes
+#### 5. Repository Management
+- **Sortable Tables**: Date, repository, author columns
+- **Repository Filtering**: Dropdown with all available repositories
+- **Search Integration**: Highlighting and filtering across all views
+- **Branch Filtering**: Configurable exclusion of temporary/test branches
+
+#### 6. Activity Visualization
+- **Interactive Bar Charts**: Click for detailed contributor views
+- **Activity Heatmap**: GitHub-style contribution heatmap by day/hour
+- **Performance Optimized**: Memoized calculations with data integrity checks
+- **Smart Filtering**: Automatic threshold-based contributor filtering
+
+#### 7. Theme and UX
+- **Light/Dark Mode**: Toggle in header with localStorage persistence
+- **Responsive Design**: Mobile-optimized with touch-friendly interactions
+- **Consistent Styling**: Typography-based design matching GitHub patterns
+- **Loading States**: Smooth loading indicators and skeleton screens
 
 ## 🔧 Configuration
 
 ### Environment Variables
 
-#### Server-Side (Never expose to client)
+#### Required Variables (Server-Side Only)
+| Variable | Description | Example |
+|----------|-------------|----------|
+| `GITHUB_TOKEN` | GitHub Personal Access Token with required scopes | `ghp_xxxxxxxxxxxx` |
+| `TARGET_ORGANIZATIONS` | Comma-separated list of GitHub organizations | `mycompany,opensource-org` |
+
+#### Optional Server-Side Variables
+| Variable | Description | Default | Example |
+|----------|-------------|---------|----------|
+| `GITHUB_API_URL` | GitHub GraphQL API endpoint | `https://api.github.com/graphql` | For GitHub Enterprise |
+| `GITHUB_BASE_URL` | GitHub base URL | `https://github.com` | For GitHub Enterprise |
+| `GITHUB_RAW_URL` | GitHub raw content URL | `https://raw.githubusercontent.com` | For GitHub Enterprise |
+| `LOOK_BACK_DAYS` | Days of activity history to fetch | `5` | `7` |
+| `CACHE_TTL_MINUTES` | Cache TTL in minutes | `15` | `30` |
+| `FETCH_ALL_COMMITS` | Fetch all commits vs first 100 per branch | `true` | `false` |
+| `EXCLUDE_BRANCH_PREFIXES` | Branch prefixes to exclude | `""` (empty) | `"temp,test,codegenie"` |
+| `NODE_ENV` | Environment mode | `development` | `production` |
+
+#### Optional Client-Side Variables
+| Variable | Description | Default | Example |
+|----------|-------------|---------|----------|
+| `NEXT_PUBLIC_DEBUG_MODE` | Use mock data instead of GitHub API | `false` | `true` |
+| `NEXT_PUBLIC_APP_NAME` | Application title | `"GitHub Dashboard"` | `"My Company Dashboard"` |
+| `NEXT_PUBLIC_CACHE_TTL` | Cache TTL in milliseconds (for UI display) | `900000` (15 min) | `1800000` (30 min) |
+
+#### Configuration Examples
+
+**Performance Tuning Examples:**
 ```bash
-GITHUB_TOKEN=<your_github_token>              # GitHub API authentication
-TARGET_ORGANIZATIONS=<comma_separated_orgs>   # Organizations to fetch
-REPO_FETCH_LIMIT=25                          # Max repositories per org
-LOOK_BACK_DAYS=5                            # Days of activity to show
+# For large organizations with many repositories
+LOOK_BACK_DAYS=7
+CACHE_TTL_MINUTES=30
 
-# Commit Fetching Configuration
-FETCH_ALL_COMMITS=true                       # true=all commits, false=first 100 per branch
-EXCLUDE_BRANCH_PREFIXES=<comma_separated>    # Filter branches starting with these prefixes
+# For smaller teams with frequent updates
+LOOK_BACK_DAYS=3
+CACHE_TTL_MINUTES=5
 
-NODE_ENV=development                         # Environment mode
+# For development with minimal API usage
+LOOK_BACK_DAYS=1
+CACHE_TTL_MINUTES=60
 ```
 
-#### Client-Side (Safe for browser)
-```bash
-NEXT_PUBLIC_DEBUG_MODE=true                  # Enable debug mode
-NEXT_PUBLIC_APP_NAME="GitHub Dashboard"      # Application title
-NEXT_PUBLIC_CACHE_TTL=300000                # Cache TTL (5 minutes)
-```
+#### Hardcoded Configuration (Cannot be changed via environment variables)
+These values are hardcoded in `src/lib/constants.ts` and `src/components/`:
+- **Chart Thresholds**: 25+ commits, 10+ PRs for chart display
+- **Modal Pagination**: 50 items per page with lazy loading
+- **Search Debounce**: 150ms (global search), 300ms (modal search)
+- **Modal Size**: 50% width, 70% height
 
 ### Customization
 
@@ -228,14 +325,14 @@ const PERFORMANCE_THRESHOLDS = {
 #### 2. Rate Limiting Issues
 **Solutions**:
 - Enable debug mode for development
-- Ensure 5-minute cache TTL is working
+- Adjust cache TTL via `CACHE_TTL_MINUTES` environment variable
 - Check token permissions and quotas
 
 #### 3. No Data Showing
 **Check**:
 - GitHub token has access to target organizations
 - Organizations exist and are spelled correctly
-- Repositories have recent activity (within LOOK_BACK_DAYS)
+- Repositories have recent activity (within `LOOK_BACK_DAYS`, default 5)
 
 #### 4. Build Errors
 **Solutions**:
@@ -254,8 +351,8 @@ npm run type-check
 #### 5. Performance Issues
 **Optimizations**:
 - Enable debug mode to use mock data
-- Reduce `REPO_FETCH_LIMIT` in `.env.local`
-- Decrease `LOOK_BACK_DAYS` for less data processing
+- Adjust `LOOK_BACK_DAYS` in `.env.local`
+- Increase `CACHE_TTL_MINUTES` for less frequent API calls
 - Set `FETCH_ALL_COMMITS=false` for faster syncs (limits to 100 commits per branch)
 - Use `EXCLUDE_BRANCH_PREFIXES` to filter out temporary/generated branches
 
@@ -291,10 +388,25 @@ EXCLUDE_BRANCH_PREFIXES=codegenie,temp,test,feature/temp
 ```
 
 **Use Cases**:
-- Exclude auto-generated branches (e.g., from AI tools)
+- Exclude auto-generated branches (e.g., from AI tools like Cursor)
 - Filter out temporary/experimental branches
 - Skip test/staging branches
 - Reduce noise from development workflows
+- Improve performance by reducing data processing
+
+#### Interactive Features Configuration
+
+**Chart Thresholds** (defined in `src/lib/constants.ts`):
+- **Commit Charts**: Show contributors with 25+ commits
+- **PR Charts**: Show contributors with 10+ pull requests
+- **Modal Pagination**: Load 50 items at a time with scroll-based loading
+- **Search Debounce**: 150ms (global search), 300ms (modal search) for optimal performance
+
+**Modal Behavior**:
+- **Size**: 50% width, 70% height for optimal viewing
+- **Search Reset**: Automatically clears search when switching contributors
+- **Lazy Loading**: Infinite scroll with loading indicators
+- **Link Behavior**: All GitHub links open in new tabs
 
 ### Development Tips
 
@@ -442,13 +554,23 @@ npm run build
 - [x] Repository filtering
 - [x] Activity heatmap
 
-### Phase 3 (Future)
+### Phase 3 (Completed) ✅
+- [x] Interactive clickable charts with detailed modals
+- [x] Advanced search with relevance scoring and highlighting
+- [x] Contributor switching with autocomplete
+- [x] Lazy loading and infinite scroll
+- [x] Smart branch filtering and performance optimization
+- [x] Consistent GitHub-style UI patterns
+
+### Phase 4 (Future)
 - [ ] Real-time updates with WebSockets  
-- [ ] Advanced filtering options
+- [ ] Advanced filtering options (date ranges, file types)
 - [ ] Export functionality (CSV, PDF)
-- [ ] Team analytics dashboard
-- [ ] Custom widget system
+- [ ] Team analytics dashboard with insights
+- [ ] Custom widget system and dashboard layouts
 - [ ] Mobile app companion
+- [ ] Advanced caching with Redis
+- [ ] Multi-organization comparison views
 
 ## 📄 License
 

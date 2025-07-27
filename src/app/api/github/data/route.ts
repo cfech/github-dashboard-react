@@ -3,8 +3,8 @@ import { performIncrementalSync, performFullSync } from '@/lib/incrementalSync';
 import { getCachedData, isCacheValid } from '@/lib/fileCache';
 import { ERROR_MESSAGES } from '@/lib/constants';
 
-// Cache validation period in minutes
-const CACHE_VALID_MINUTES = 15;
+// Cache validation period in minutes - configurable via environment variable
+const CACHE_VALID_MINUTES = parseInt(process.env.CACHE_TTL_MINUTES || '15');
 
 export async function GET(request: NextRequest) {
   try {
