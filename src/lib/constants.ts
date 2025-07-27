@@ -1,7 +1,8 @@
 export const CONFIG = {
   DEBUG_DATA_FILENAME: "github_data.json",
   COMMIT_STREAM_DEBUG_FILENAME: "cs_debug.json", 
-  LOOK_BACK_DAYS: 5,
+  // Environment variable support with defaults
+  LOOK_BACK_DAYS: parseInt(process.env.LOOK_BACK_DAYS || '5'),
   DEFAULT_REPO_FETCH_LIMIT: 25,
   COMMIT_STREAM_REPO_LIMIT: 30,
   COMMITS_PER_REPO_DEFAULT: 10,
