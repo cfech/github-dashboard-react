@@ -245,7 +245,7 @@ export default function RepositoryAnalyticsPage() {
               }}
             >
               <Typography variant="body1" gutterBottom sx={{ fontWeight: 'medium', color: 'primary.main' }}>
-                🔍 What we're analyzing:
+                🔍 What we&apos;re analyzing:
               </Typography>
               <Box sx={{ textAlign: 'left', mt: 2 }}>
                 <Typography variant="body2" sx={{ mb: 1 }}>
@@ -261,7 +261,7 @@ export default function RepositoryAnalyticsPage() {
                   • ⚡ Productivity patterns and knowledge distribution
                 </Typography>
                 <Typography variant="body2">
-                  • 🎯 Smart recommendations and insights
+                  • 🎯 Interactive visualizations and insights
                 </Typography>
               </Box>
             </Paper>
@@ -349,7 +349,7 @@ export default function RepositoryAnalyticsPage() {
               </Grid>
               <Grid item xs={12} md={6}>
                 <Typography variant="body2" paragraph>
-                  <strong>🎩 Smart Recommendations:</strong> Personalized suggestions for repositories to contribute to, collaborate on, or learn from based on your contribution patterns.
+                  <strong>🔍 Interactive Analysis:</strong> Explore repository relationships through multiple visualization modes including card layouts, similarity matrices, and detailed clustering breakdowns.
                 </Typography>
                 <Typography variant="body2">
                   <strong>📊 Detailed Metrics:</strong> All calculations are transparent with hover tooltips explaining formulas, thresholds, and interpretation guidelines.

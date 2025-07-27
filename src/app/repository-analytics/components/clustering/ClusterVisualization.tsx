@@ -23,38 +23,10 @@ import {
 } from '@mui/material';
 import { GitHub, Group, Code, Schedule, Hub, Analytics, Info } from '@mui/icons-material';
 import { ClusteringResult, RepositoryClusterData } from '../RepositoryClustering';
-import dynamic from 'next/dynamic';
-import SimpleNetworkVisualization from './SimpleNetworkVisualization';
-
-// Try to load the advanced vis-network visualization, fallback to simple one
-const NetworkVisualization = dynamic(
-  () => import('./NetworkVisualization').catch(() => {
-    // Fallback to simple visualization if vis-network fails
-    console.warn('Advanced network visualization failed to load, using simple fallback');
-    return import('./SimpleNetworkVisualization');
-  }),
-  {
-    ssr: false,
-    loading: () => (
-      <Box sx={{ 
-        height: 600, 
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'background.default',
-        borderRadius: 2
-      }}>
-        <Typography variant="body2" color="text.secondary">
-          Loading network visualization...
-        </Typography>
-      </Box>
-    )
-  }
-);
 
 interface ClusterVisualizationProps {
   clusteringResult: ClusteringResult;
-  viewType: 'cards' | 'network' | 'table';
+  viewType: 'cards' | 'table';
 }
 
 const CLUSTER_COLORS = [
@@ -442,22 +414,6 @@ export default function ClusterVisualization({
     </Box>
   );
 
-  const renderNetworkView = () => {
-    return (
-      <Box>
-        <Alert severity="info" sx={{ mb: 3, borderRadius: 2 }}>
-          <Typography variant="body2">
-            <strong>Interactive Repository Cluster Network:</strong> This visualization shows relationships between repositories based on similarity scores. 
-            Repositories in the same cluster are connected with solid lines, while high cross-cluster similarities are shown with dashed lines.
-            Node size represents activity level, and line thickness represents similarity strength.
-          </Typography>
-        </Alert>
-        <Box>
-          <NetworkVisualization clusteringResult={clusteringResult} />
-        </Box>
-      </Box>
-    );
-  };
 
   const renderTableView = () => (
     <TableContainer component={Paper}>
@@ -545,7 +501,6 @@ export default function ClusterVisualization({
   return (
     <Box>
       {viewType === 'cards' && renderCardsView()}
-      {viewType === 'network' && renderNetworkView()}
       {viewType === 'table' && renderTableView()}
     </Box>
   );

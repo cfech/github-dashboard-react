@@ -17,11 +17,10 @@ import {
   IconButton,
   Alert
 } from '@mui/material';
-import { ViewModule, AccountTree, Recommend, Info, Hub, Analytics, TrendingUp } from '@mui/icons-material';
+import { ViewModule, AccountTree, Info, Hub, Analytics } from '@mui/icons-material';
 import { GitHubCommit, GitHubPR, GitHubRepository, GitHubUser } from '@/types/github';
 import ClusterVisualization from './clustering/ClusterVisualization';
 import SimilarityMetrics from './clustering/SimilarityMetrics';
-import RecommendationEngine from './clustering/RecommendationEngine';
 
 interface RepositoryClusteringProps {
   commits: GitHubCommit[];
@@ -30,7 +29,7 @@ interface RepositoryClusteringProps {
   userInfo: GitHubUser;
 }
 
-type ViewType = 'cards' | 'network' | 'table';
+type ViewType = 'cards' | 'table';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -184,7 +183,7 @@ export default function RepositoryClustering({
             Repository Clustering
           </Typography>
           <Typography variant="body1" color="text.secondary" sx={{ fontSize: '1.1rem' }}>
-            Discover repository relationships, similarity patterns, and intelligent recommendations
+            Discover repository relationships and similarity patterns using advanced clustering algorithms
           </Typography>
         </Box>
       </Box>
@@ -196,7 +195,7 @@ export default function RepositoryClustering({
           Advanced Repository Clustering & Analysis
         </Typography>
         <Typography variant="body2" paragraph>
-          Our intelligent clustering system groups your organization&apos;s repositories using advanced similarity algorithms and machine learning techniques to reveal hidden patterns, collaboration opportunities, and strategic insights.
+          Our intelligent clustering system groups your organization&apos;s repositories using advanced similarity algorithms to reveal hidden patterns and collaboration opportunities.
         </Typography>
         <Grid container spacing={3}>
           <Grid item xs={12} md={4}>
@@ -222,13 +221,12 @@ export default function RepositoryClustering({
           </Grid>
           <Grid item xs={12} md={4}>
             <Typography variant="body2" paragraph>
-              <strong>🎯 Smart Recommendations:</strong><br/>
-              Four strategic recommendation types:<br/>
-              • Similar repos (expand expertise)<br/>
-              • Repos needing help (high impact)<br/>
-              • Collaboration opportunities (network)<br/>
-              • Growth opportunities (learning)<br/>
-              <em>Personalized:</em> Based on your contribution history and goals
+              <strong>📊 Visual Analysis:</strong><br/>
+              Multiple visualization modes:<br/>
+              • Card layout (detailed overview)<br/>
+              • Data table (tabular view)<br/>
+              • Similarity metrics (detailed analysis)<br/>
+              <em>Interactive:</em> Click to explore repository details and GitHub links
             </Typography>
           </Grid>
         </Grid>
@@ -334,55 +332,6 @@ export default function RepositoryClustering({
             label="Similarity Metrics" 
             {...a11yProps(1)} 
           />
-          <Tab 
-            icon={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <TrendingUp sx={{ fontSize: 28 }} />
-                <Tooltip title={
-                  <Box sx={{ p: 1, maxWidth: 650 }}>
-                    <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
-                      Intelligent Recommendation Engine
-                    </Typography>
-                    <Typography variant="body2" paragraph>
-                      <strong>Personalized algorithm:</strong> Analyzes your contribution patterns, collaboration network, and skill level to suggest repositories that match your interests and development goals.
-                    </Typography>
-                    <Typography variant="body2" paragraph>
-                      <strong>1. Similar Repositories (Expansion Strategy):</strong><br/>
-                      • Algorithm: Finds repos with {'>'}50% similarity to your current contributions<br/>
-                      • Formula: similarity_score × 100<br/>
-                      • Logic: If you contribute to repo A, suggests repos B and C that share contributors, patterns, and characteristics with A<br/>
-                      • Use case: Leverage existing expertise in familiar technology stacks
-                    </Typography>
-                    <Typography variant="body2" paragraph>
-                      <strong>2. Repositories Needing Help (Impact Strategy):</strong><br/>
-                      • Algorithm: Identifies active repos with critical knowledge concentration risk ({'>'}60% single contributor)<br/>
-                      • Formula: concentration_risk + activity_bonus - staleness_penalty<br/>
-                      • Logic: Finds projects where your contributions could significantly reduce bus factor risk<br/>
-                      • Use case: Make high-impact contributions to projects that need diversification
-                    </Typography>
-                    <Typography variant="body2" paragraph>
-                      <strong>3. Collaboration Opportunities (Network Strategy):</strong><br/>
-                      • Algorithm: Repos where your existing collaborators are active<br/>
-                      • Formula: (shared_collaborators / total_collaborators) × recent_activity<br/>
-                      • Logic: Leverages your professional network for easier integration and mentorship<br/>
-                      • Use case: Work with known colleagues in new contexts
-                    </Typography>
-                    <Typography variant="body2">
-                      <strong>4. Growth Opportunities (Learning Strategy):</strong><br/>
-                      • Algorithm: High-activity ({'>'}10 recent commits), mature ({'>'}60 maturity), welcoming ({'>'}3 contributors) projects<br/>
-                      • Formula: (recent_activity × 2) + (maturity_score / 2) + contributor_count<br/>
-                      • Logic: Identifies established projects with active communities for skill development<br/>
-                      • Use case: Learn best practices from mature, well-maintained codebases
-                    </Typography>
-                  </Box>
-                }>
-                  <Info color="action" fontSize="small" />
-                </Tooltip>
-              </Box>
-            }
-            label="Smart Recommendations" 
-            {...a11yProps(2)} 
-          />
         </Tabs>
 
         <TabPanel value={tabValue} index={0}>
@@ -407,7 +356,6 @@ export default function RepositoryClustering({
                 sx={{ borderRadius: 2 }}
               >
                 <MenuItem value="cards">Card Layout</MenuItem>
-                <MenuItem value="network">Network Graph</MenuItem>
                 <MenuItem value="table">Data Table</MenuItem>
               </Select>
             </FormControl>
@@ -425,13 +373,6 @@ export default function RepositoryClustering({
           />
         </TabPanel>
 
-        <TabPanel value={tabValue} index={2}>
-          <RecommendationEngine 
-            clusteringResult={clusteringData}
-            userInfo={userInfo}
-            commits={commits}
-          />
-        </TabPanel>
       </Paper>
     </Box>
   );

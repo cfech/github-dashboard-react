@@ -59,8 +59,8 @@ NEXT_PUBLIC_DEBUG_MODE=true  # Use mock data for development
 
 **Optional Configuration:**
 ```bash
-LOOK_BACK_DAYS=5           # Days of activity to fetch
-CACHE_TTL_MINUTES=15       # Cache TTL in minutes
+LOOK_BACK_DAYS=5           # Days of activity to fetch (default: 5)
+CACHE_TTL_MINUTES=15       # Cache TTL in minutes (default: 15)
 FETCH_ALL_COMMITS=true     # true=all commits, false=first 100 per branch
 EXCLUDE_BRANCH_PREFIXES=temp,test  # Filter branches by prefix
 ```
